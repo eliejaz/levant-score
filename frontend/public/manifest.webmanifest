@@ -1,0 +1,20 @@
+{
+  "name": "Levant Score — سهرة",
+  "short_name": "Levant Score",
+  "description": "The friendly scorekeeper for Lebanese card nights.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ee",
+  "theme_color": "#153f36",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "orientation": "portrait-primary",
+  "lang": "en",
+  "dir": "auto"
+}
