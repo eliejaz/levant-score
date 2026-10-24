@@ -55,7 +55,7 @@ export const localGameRepository={
     if(!request.scores?.length) throw bad('scores must not be empty')
     if((request.note?.length||0)>240) throw bad('note must be at most 240 characters')
     const entries=resolveEntries(game,request)
-    const points=entries.map(({input,player})=>calculate(game,input,request,player))
+    const points=entries.map(({input,player})=>normalizeZero(calculate(game,input,request,player)))
     validateRound(game,request,points)
     const now=new Date().toISOString(), roundId=uuid()
     const deltas=entries.map(({player},index)=>({playerId:player.id,points:points[index]}))
@@ -212,6 +212,7 @@ function requireGame(state,id){const game=state.currentGame?.id===id?state.curre
 function readState(){try{const parsed=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');return parsed?.version===1?parsed:clone(EMPTY_STATE)}catch{return clone(EMPTY_STATE)}}
 function writeState(state){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(error){throw new Error(error?.name==='QuotaExceededError'?'Browser storage is full. Export or delete a game and try again.':'Could not save this game on this device.')}}
 function nullableNumber(value){return value==null||value===''?null:Number(value)}
+function normalizeZero(value){return Object.is(value,-0)?0:value}
 function requiredNumber(value,message){if(value==null||value===''||!Number.isFinite(Number(value)))throw bad(message);return Number(value)}
 function number(value){return Number(value)||0}
 function sum(values){return values.reduce((total,value)=>total+Number(value),0)}

@@ -8,6 +8,7 @@ A bilingual, mobile-first scorekeeper for Lebanese and Arab card nights. It ship
 - PostgreSQL with SQLx-native migrations and explicit transactional queries
 - Stateless JWT authentication with BCrypt passwords
 - Vite + React responsive frontend, English and Arabic RTL
+- Optional browser-only/PWA build with no account, server, or database
 - Docker Compose for a one-command local setup
 
 ## Project structure
@@ -33,6 +34,19 @@ frontend/
 ├── package.json
 └── Dockerfile
 ```
+
+## Cloud and offline editions
+
+The same React application now has two storage adapters, so the screens and card-game rules stay identical:
+
+| Edition | Build command | Storage | Sign-in |
+| --- | --- | --- | --- |
+| Cloud | `npm run build` | Rust API + Neon PostgreSQL | Required |
+| Offline | `npm run build:local` | This browser's `localStorage` | None |
+
+The offline edition keeps at most one active game and one finished game. Finishing another game replaces the previous history game. It also registers a service worker, so after the first successful load it can open without a network connection. Browser data is device- and browser-profile-specific and can be removed by clearing site data.
+
+For local development, use `npm run dev:local` to run the browser-only edition. Its game engine mirrors the backend validation for Leekha, 400, Tarneeb, Trex/Complex, Belote, Basra, Hand, Chinese, and custom games. Run its contract tests with `npm run test:local`.
 
 ## Hosted deployment
 
@@ -189,6 +203,19 @@ For React Router navigation and browser refreshes, add this rule in the Static S
 | `/*` | `/index.html` | Rewrite |
 
 The current frontend is available at <https://levant-score.onrender.com>.
+
+### 4. Optional browser-only deployment
+
+Create a second Render **Static Site** from the same repository. It does not need the backend, Neon, `VITE_API_URL`, or any secrets:
+
+| Setting | Value |
+| --- | --- |
+| Branch | `main` |
+| Root directory | `frontend` |
+| Build command | `npm install && npm run build:local` |
+| Publish directory | `dist` |
+
+Add the same `/*` → `/index.html` rewrite. This deployment is the offline edition; the `VITE_STORAGE_MODE=local` setting comes from the tracked `.env.offline` file used by the build script.
 
 ### Updating production
 

@@ -19,7 +19,7 @@ export default function Shell({ children, compact = false }) {
       </div>
     </header>
     <main>{children}</main>
-    <nav className="mobile-nav" aria-label="Primary navigation">
+    <nav className={`mobile-nav ${isLocalMode?'local-mode-nav':''}`} aria-label="Primary navigation">
       <Link to="/" className={location.pathname === '/' ? 'active' : ''}><Home/><span>{t.home}</span></Link>
       <Link to="/games/new" className={location.pathname === '/games/new' ? 'active create' : 'create'}><Plus/><span>{t.newGame}</span></Link>
       <button onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}><Globe2/><span>{lang === 'en' ? 'العربية' : 'English'}</span></button>

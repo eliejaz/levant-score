@@ -34,6 +34,27 @@ test('Tarneeb applies one team score per deal',async()=>{
   assert.deepEqual(result.round.scores.map(item=>item.points),[-8,7])
 })
 
+test('Trex, Basra, Belote, and Hand use the same preset formulas',async()=>{
+  let game=await games.createGame(createRequest('trex'))
+  let result=await games.addRound(game.id,{ruleCode:'KING',scores:game.players.map((player,index)=>({playerId:player.id,kingHearts:index===0?1:0}))})
+  assert.deepEqual(result.round.scores.map(item=>item.points),[-75,0,0,0])
+  await games.deleteGame(game.id)
+
+  game=await games.createGame(createRequest('basra'))
+  result=await games.addRound(game.id,{scores:[{teamNumber:1,cardPoints:7,basras:1,majority:true},{teamNumber:2,cardPoints:6,basras:0,majority:false}]})
+  assert.deepEqual(result.standings.map(item=>item.total),[20,6])
+  await games.deleteGame(game.id)
+
+  game=await games.createGame(createRequest('belote'))
+  result=await games.addRound(game.id,{scores:[{teamNumber:1,cardPoints:100,bonusPoints:20},{teamNumber:2,cardPoints:62,bonusPoints:0}]})
+  assert.deepEqual(result.standings.map(item=>item.total),[120,62])
+  await games.deleteGame(game.id)
+
+  game=await games.createGame(createRequest('hand'))
+  result=await games.addRound(game.id,{scores:game.players.map((player,index)=>({playerId:player.id,cardPoints:index*10}))})
+  assert.deepEqual(result.standings.map(item=>item.total),[0,10,20,30])
+})
+
 test('local storage retains at most one active game and one finished game',async()=>{
   const first=await games.createGame(createRequest('custom'))
   await assert.rejects(()=>games.createGame(createRequest('custom')),/current game/)
@@ -48,7 +69,7 @@ test('local storage retains at most one active game and one finished game',async
 })
 
 function createRequest(code){
-  const team=code==='400'||code==='tarneeb'||code==='leekha-team'
+  const team=['400','tarneeb','leekha-team','basra','belote'].includes(code)
   const count=code==='custom'?2:4
   return {title:code,presetCode:code,players:Array.from({length:count},(_,index)=>({name:`P${index+1}`,teamNumber:team?(index%2)+1:null}))}
 }
