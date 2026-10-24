@@ -4,7 +4,10 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './lib/auth'
 import { LanguageProvider } from './lib/language'
 import App from './App'
+import { warmApi } from './lib/api'
 import './styles.css'
+
+warmApi()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><BrowserRouter><LanguageProvider><AuthProvider><App /></AuthProvider></LanguageProvider></BrowserRouter></React.StrictMode>

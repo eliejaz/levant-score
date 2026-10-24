@@ -30,22 +30,16 @@ pub async fn signup(
         (8..=100).contains(&request.password.chars().count()),
         "Password must be between 8 and 100 characters",
     )?;
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE lower(email)=lower($1))")
-            .bind(&email)
-            .fetch_one(&state.pool)
-            .await?;
-    if exists {
-        return Err(ApiError::Conflict(
-            "An account already exists for this email".into(),
-        ));
-    }
+    let password = request.password;
+    let password_hash = tokio::task::spawn_blocking(move || hash(password, DEFAULT_COST))
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
     let user = UserRow {
         id: Uuid::new_v4(),
         email,
         display_name: display_name.into(),
-        password_hash: hash(&request.password, DEFAULT_COST)
-            .map_err(|e| ApiError::Internal(e.to_string()))?,
+        password_hash,
     };
     let result = sqlx::query("INSERT INTO users (id,email,display_name,password_hash,created_at) VALUES ($1,$2,$3,$4,now())")
         .bind(user.id).bind(&user.email).bind(&user.display_name).bind(&user.password_hash).execute(&state.pool).await;
@@ -64,16 +58,22 @@ pub async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
 ) -> ApiResult<Json<AuthResponse>> {
-    let email = request.email.trim();
-    require(valid_email(email), "Email must be valid")?;
+    let email = request.email.trim().to_lowercase();
+    require(valid_email(&email), "Email must be valid")?;
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id,email,display_name,password_hash FROM users WHERE lower(email)=lower($1)",
+        "SELECT id,email,display_name,password_hash FROM users WHERE email=$1",
     )
     .bind(email)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| ApiError::Unauthorized("Email or password is incorrect".into()))?;
-    if !verify(&request.password, &user.password_hash).unwrap_or(false) {
+    let password = request.password;
+    let password_hash = user.password_hash.clone();
+    let valid = tokio::task::spawn_blocking(move || verify(password, &password_hash))
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .unwrap_or(false);
+    if !valid {
         return Err(ApiError::Unauthorized(
             "Email or password is incorrect".into(),
         ));
@@ -136,13 +136,6 @@ impl FromRequestParts<AppState> for AuthUser {
         .claims;
         let id = Uuid::parse_str(&claims.sub)
             .map_err(|_| ApiError::Unauthorized("Unauthorized".into()))?;
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)")
-            .bind(id)
-            .fetch_one(&state.pool)
-            .await?;
-        if !exists {
-            return Err(ApiError::Unauthorized("Unauthorized".into()));
-        }
         Ok(Self(id))
     }
 }

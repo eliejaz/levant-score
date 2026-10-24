@@ -4,6 +4,7 @@ FROM rust:1.99-bookworm AS build
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY src/lib.rs src/main.rs ./src/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo fetch --locked
 

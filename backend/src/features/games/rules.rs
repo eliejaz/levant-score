@@ -329,12 +329,11 @@ fn validate_belote(request: &AddRoundRequest) -> ApiResult<()> {
 }
 
 fn current_player_total(game: &GameData, player_id: Uuid) -> i32 {
-    let round_ids: HashSet<Uuid> = game.rounds.iter().map(|r| r.id).collect();
-    game.scores
+    game.players
         .iter()
-        .filter(|s| s.player_id == player_id && round_ids.contains(&s.round_id))
-        .map(|s| s.points)
-        .sum()
+        .find(|player| player.id == player_id)
+        .map(|player| player.total_score)
+        .unwrap_or_default()
 }
 fn total<F: Fn(&ScoreInput) -> i32>(
     scores: &[ScoreInput],
@@ -394,6 +393,7 @@ mod tests {
             name: "Elie".into(),
             team_number: Some(1),
             seat_order: 0,
+            total_score: 0,
         };
         game.players.push(player.clone());
         let request = empty_request();
@@ -410,11 +410,7 @@ mod tests {
             note: None,
             created_at: chrono::Utc::now(),
         });
-        game.scores.push(DbScore {
-            round_id: round,
-            player_id: player.id,
-            points: 30,
-        });
+        game.players[0].total_score = 30;
         assert_eq!(calculate(&game, &bid, &request, &player).unwrap(), 5);
         bid.bid = Some(13);
         bid.made = Some(false);
@@ -484,6 +480,7 @@ mod tests {
                 threshold_rule: "NONE".into(),
                 score_mode: "INDIVIDUAL".into(),
                 round_limit: None,
+                round_count: 0,
                 status: "ACTIVE".into(),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),

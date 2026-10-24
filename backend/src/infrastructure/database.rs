@@ -17,10 +17,16 @@ pub async fn connect() -> Result<PgPool> {
     if let Ok(password) = env::var("DB_PASSWORD") {
         options = options.password(&password);
     }
+    let max_connections = env::var("DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(5);
     PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(max_connections)
         .min_connections(0)
         .acquire_timeout(Duration::from_secs(20))
+        .idle_timeout(Duration::from_secs(300))
+        .max_lifetime(Duration::from_secs(1800))
         .connect_with(options)
         .await
         .context("connect to PostgreSQL")

@@ -61,6 +61,21 @@ pub struct StatusRequest {
     pub status: Status,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListGamesQuery {
+    pub status: Option<Status>,
+    pub page: Option<i64>,
+    pub size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundPageQuery {
+    pub before_round: Option<i32>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerView {
@@ -81,14 +96,14 @@ pub struct StandingView {
     pub position: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct RoundScoreView {
     pub key: String,
     pub name: String,
     pub points: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoundView {
     pub id: Uuid,
@@ -113,7 +128,7 @@ pub struct GameSummary {
     pub status: Status,
     pub score_mode: ScoreMode,
     pub round_limit: Option<i32>,
-    pub round_count: usize,
+    pub round_count: i32,
     pub standings: Vec<StandingView>,
     pub updated_at: DateTime<Utc>,
 }
@@ -132,9 +147,48 @@ pub struct GameView {
     pub status: Status,
     pub score_mode: ScoreMode,
     pub round_limit: Option<i32>,
+    pub round_count: i32,
+    pub has_more_rounds: bool,
     pub players: Vec<PlayerView>,
     pub standings: Vec<StandingView>,
     pub rounds: Vec<RoundView>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameStats {
+    pub all_time_rounds: i64,
+    pub active_games: i64,
+    pub finished_games: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GamePage {
+    pub items: Vec<GameSummary>,
+    pub page: i64,
+    pub size: i64,
+    pub total_items: i64,
+    pub total_pages: i64,
+    pub stats: GameStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundPage {
+    pub items: Vec<RoundView>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameMutation {
+    pub status: Status,
+    pub standings: Vec<StandingView>,
+    pub round_count: i32,
+    pub updated_at: DateTime<Utc>,
+    pub round: Option<RoundView>,
+    pub removed_round_id: Option<Uuid>,
 }

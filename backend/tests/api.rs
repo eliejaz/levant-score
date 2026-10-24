@@ -61,15 +61,16 @@ async fn auth_game_round_validation_and_delete_work_end_to_end(pool: sqlx::PgPoo
     )
     .await;
     assert_eq!(round.0, StatusCode::OK);
-    assert_eq!(round.1["rounds"][0]["scores"][0]["points"], -8);
-    assert_eq!(round.1["rounds"][0]["scores"][1]["points"], 6);
+    assert_eq!(round.1["round"]["scores"][0]["points"], -8);
+    assert_eq!(round.1["round"]["scores"][1]["points"], 6);
 
     let games = send(&app, "GET", "/api/games", Some(&token), None).await;
     assert_eq!(games.0, StatusCode::OK);
-    assert_eq!(games.1.as_array().unwrap().len(), 1);
-    assert_eq!(games.1[0]["roundCount"], 1);
-    assert_eq!(games.1[0]["standings"][0]["total"], 6);
-    assert_eq!(games.1[0]["standings"][1]["total"], -8);
+    assert_eq!(games.1["items"].as_array().unwrap().len(), 1);
+    assert_eq!(games.1["items"][0]["roundCount"], 1);
+    assert_eq!(games.1["items"][0]["standings"][0]["total"], 6);
+    assert_eq!(games.1["items"][0]["standings"][1]["total"], -8);
+    assert_eq!(games.1["stats"]["allTimeRounds"], 1);
 
     let deleted = send(
         &app,

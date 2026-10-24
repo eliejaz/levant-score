@@ -134,7 +134,9 @@ SQLx migrations run automatically when the backend starts and create or update t
 
 > **Rust migration reset:** migration `0001_initial_schema.sql` intentionally drops the legacy Spring/Flyway application tables. The first deployment of this Rust version deletes existing users, games, players, rounds, and scores. Back up the Neon database first if you decide that data is needed.
 
-> **Performance migration:** migration `0002_optimize_score_storage.sql` removes the unused score-entry UUID, adds the index used by dashboard totals, and clears existing games and score history once. User accounts are retained.
+> **Performance migration:** migration `0002_optimize_score_storage.sql` removes the unused score-entry UUID and compacts score storage. It clears existing games and score history once; user accounts are retained.
+
+> **Cached-state migration:** migration `0003_cached_game_state.sql` clears existing games once, preserves user accounts, and adds transactionally maintained player totals and round counts. This keeps dashboard and score-entry queries constant-time as history grows.
 
 ### 2. Deploy the backend to Render
 
@@ -154,6 +156,7 @@ DATABASE_URL=postgresql://<neon-role>:<url-encoded-password>@<neon-host>/<databa
 JWT_SECRET=<a-random-secret-of-at-least-32-characters>
 CORS_ORIGINS=https://levant-score.onrender.com
 PORT=10000
+DB_MAX_CONNECTIONS=5
 ```
 
 `CORS_ORIGINS` must contain the frontend origin, without a trailing slash. If the frontend domain changes, update this value and redeploy the backend. Render supplies `PORT`; the Rust server binds to `0.0.0.0` on that port.
@@ -192,6 +195,14 @@ The current frontend is available at <https://levant-score.onrender.com>.
 Push changes to the deployed GitHub branch. With automatic deploys enabled, Render rebuilds the affected services. Otherwise, open each service and choose **Manual Deploy → Deploy latest commit**. Environment changes to `VITE_API_URL` require rebuilding the frontend; database and JWT changes require redeploying the backend.
 
 On free plans, the backend or Neon compute may sleep while unused, so the first request after a quiet period can take longer.
+
+### Performance notes
+
+- Use Neon's pooled connection string (the hostname contains `-pooler`).
+- Keep the Render backend and Neon database in the same region.
+- The dashboard is paginated by the API, game history loads 20 hands at a time, and score mutations return only changed state.
+- The API keeps no minimum idle database connections and defaults to five maximum connections, configurable with `DB_MAX_CONNECTIONS`.
+- The frontend starts warming the API immediately and retries safe GET requests during a free-tier wake-up.
 
 ### Production security
 

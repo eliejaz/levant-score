@@ -5,4 +5,4 @@ mod handler;
 pub mod presets;
 mod rules;
 
-pub use handler::{add_round, create, delete, get, list, rematch, set_status, undo};
+pub use handler::{add_round, create, delete, get, list, list_rounds, rematch, set_status, undo};

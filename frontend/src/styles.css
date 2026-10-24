@@ -66,3 +66,5 @@
 /* Dashboard game deletion */
 .game-card-wrap{position:relative;min-width:0}.game-card-wrap .game-card{height:100%}.game-card-wrap .game-card-top{padding-inline-end:40px}.game-card-delete{position:absolute;z-index:2;top:12px;inset-inline-end:12px;width:34px;height:34px;border:1px solid #f1cbc4;border-radius:10px;background:#fff0ed;color:#bd4a38;display:grid;place-items:center;box-shadow:0 3px 10px rgba(151,58,43,.1);transition:.18s}.game-card-delete:hover{background:#c94f3d;border-color:#c94f3d;color:#fff;transform:translateY(-1px)}.game-card-delete:focus-visible{outline:3px solid rgba(201,79,61,.22);outline-offset:2px}
 @media(max-width:620px){.game-card-delete{width:40px;height:40px;top:10px;inset-inline-end:10px}.game-card-wrap .game-card-top{padding-inline-end:45px}}
+
+.history-load-more{width:100%;margin-top:12px}

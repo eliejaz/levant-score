@@ -2,12 +2,13 @@ pub mod error;
 
 use axum::{
     http::{header, HeaderValue, Method},
+    response::IntoResponse,
     routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::time::Duration;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     features::{auth, games},
@@ -34,23 +35,31 @@ pub fn router(state: AppState, origins: &[String]) -> Router {
 
     Router::new()
         .route("/actuator/health", get(health))
-        .route(
-            "/api/presets",
-            get(|| async { Json(games::presets::all()) }),
-        )
+        .route("/api/presets", get(presets))
         .route("/api/auth/signup", post(auth::signup))
         .route("/api/auth/login", post(auth::login))
         .route("/api/games", get(games::list).post(games::create))
         .route("/api/games/{id}", get(games::get).delete(games::delete))
+        .route(
+            "/api/games/{id}/rounds",
+            get(games::list_rounds).post(games::add_round),
+        )
         .route("/api/games/{id}/rematch", post(games::rematch))
-        .route("/api/games/{id}/rounds", post(games::add_round))
         .route("/api/games/{id}/rounds/latest", delete(games::undo))
         .route("/api/games/{id}/status", patch(games::set_status))
         .layer(cors)
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
 async fn health() -> Json<Value> {
     Json(json!({"status":"UP"}))
+}
+
+async fn presets() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "public, max-age=3600")],
+        Json(games::presets::all()),
+    )
 }

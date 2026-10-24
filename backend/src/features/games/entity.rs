@@ -16,6 +16,7 @@ pub struct DbGame {
     pub threshold_rule: String,
     pub score_mode: String,
     pub round_limit: Option<i32>,
+    pub round_count: i32,
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -28,6 +29,7 @@ pub struct DbPlayer {
     pub name: String,
     pub team_number: Option<i32>,
     pub seat_order: i32,
+    pub total_score: i32,
 }
 
 #[derive(Clone, Debug, FromRow)]
