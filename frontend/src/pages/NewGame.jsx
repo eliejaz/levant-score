@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, ChevronLeft, Plus, ShieldCheck, Users, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
-import { api } from '../lib/api'
+import { gameRepository } from '../lib/gameRepository'
 import { useLanguage } from '../lib/language'
 
 export default function NewGame() {
   const [presets,setPresets]=useState(null); const [selected,setSelected]=useState(null); const [step,setStep]=useState(1); const [players,setPlayers]=useState([]); const [title,setTitle]=useState(''); const [target,setTarget]=useState(''); const [direction,setDirection]=useState('HIGH_WINS'); const [thresholdRule,setThresholdRule]=useState('NONE'); const [teamMode,setTeamMode]=useState(false); const [scoreMode,setScoreMode]=useState('INDIVIDUAL'); const [customName,setCustomName]=useState(''); const [error,setError]=useState(''); const [saving,setSaving]=useState(false)
   const {t,lang}=useLanguage(); const ar=lang==='ar'; const nav=useNavigate()
-  useEffect(()=>{api('/presets').then(setPresets).catch(e=>setError(e.message))},[])
+  useEffect(()=>{gameRepository.getPresets().then(setPresets).catch(e=>setError(e.message))},[])
   const counts=selected?playerCounts(selected):[]; const fixedCount=counts.length===1; const discreteCount=selected?.code==='basra'
   const choose=p=>{ const allowed=playerCounts(p); const count=p.code==='basra'?2:allowed.includes(4)?4:allowed[0]; setSelected(p); setTeamMode(p.teamMode); setScoreMode(p.scoreMode); setDirection(p.direction); setThresholdRule(p.thresholdRule); setTarget(p.defaultTarget ?? ''); setTitle(ar?p.nameAr:p.name); setPlayers(Array.from({length:count},(_,i)=>({name:'',teamNumber:p.teamMode?(i%2)+1:null}))); setStep(2) }
   const setPlayer=(i,key,value)=>setPlayers(players.map((p,n)=>n===i?{...p,[key]:value}:p))
@@ -19,7 +19,7 @@ export default function NewGame() {
   const toggleTeams=next=>{setTeamMode(next);setScoreMode(next?'TEAM':'INDIVIDUAL');setPlayers(players.map((p,i)=>({...p,teamNumber:next?(i%2)+1:null})))}
   const presetTeamsValid=selected?.code==='custom'||!teamMode||([1,2].every(team=>players.filter(p=>p.teamNumber===team).length===players.length/2))
   const valid=counts.includes(players.length)&&players.every(p=>p.name.trim())&&title.trim()&&(!teamMode||players.every(p=>p.teamNumber))&&presetTeamsValid
-  const submit=async()=>{setSaving(true);setError('');try{const game=await api('/games',{method:'POST',body:JSON.stringify({title,presetCode:selected.code,customPresetName:customName||null,teamMode,scoreDirection:direction,targetScore:target===''?null:Number(target),thresholdRule,scoreMode,roundLimit:selected.roundLimit,players})});nav(`/games/${game.id}`)}catch(e){setError(e.message)}finally{setSaving(false)}}
+  const submit=async()=>{setSaving(true);setError('');try{const game=await gameRepository.createGame({title,presetCode:selected.code,customPresetName:customName||null,teamMode,scoreDirection:direction,targetScore:target===''?null:Number(target),thresholdRule,scoreMode,roundLimit:selected.roundLimit,players});nav(`/games/${game.id}`)}catch(e){setError(e.message)}finally{setSaving(false)}}
   const limitLabel=thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:thresholdRule==='WIN_AT_OR_ABOVE'?t.winningTarget:t.target
   return <Shell compact><div className="new-game page-container narrow">
     <button className="text-back" onClick={()=>step===2?setStep(1):nav('/')}><ChevronLeft size={18}/>{t.back}</button>

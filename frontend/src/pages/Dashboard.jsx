@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Plus, Spade, Trash2, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
-import { api } from '../lib/api'
+import { gameRepository } from '../lib/gameRepository'
 import { useAuth } from '../lib/auth'
 import { useLanguage } from '../lib/language'
 
@@ -11,7 +11,7 @@ export default function Dashboard() {
   const [result,setResult]=useState(null); const [filter,setFilter]=useState('ACTIVE'); const [page,setPage]=useState(1); const [error,setError]=useState(''); const [reload,setReload]=useState(0)
   const [deleteTarget,setDeleteTarget]=useState(null); const [deleteError,setDeleteError]=useState(''); const [deleting,setDeleting]=useState(false)
   const { user }=useAuth(); const { t, lang }=useLanguage()
-  useEffect(()=>{ let active=true; setResult(null); setError(''); api(`/games?status=${filter}&page=${page}&size=${PAGE_SIZE}`).then(data=>{if(active)setResult(normalizePage(data,filter,page))}).catch(e=>{if(active)setError(e.message)}); return()=>{active=false} },[filter,page,reload])
+  useEffect(()=>{ let active=true; setResult(null); setError(''); gameRepository.listGames({status:filter,page,size:PAGE_SIZE}).then(data=>{if(active)setResult(normalizePage(data,filter,page))}).catch(e=>{if(active)setError(e.message)}); return()=>{active=false} },[filter,page,reload])
   const pageCount=Math.max(1,result?.totalPages||1)
   const safePage=Math.min(page,pageCount)
   const pageGames=result?.items||[]
@@ -28,7 +28,7 @@ export default function Dashboard() {
     if(!deleteTarget) return
     setDeleting(true); setDeleteError('')
     try {
-      await api(`/games/${deleteTarget.id}`,{method:'DELETE'})
+      await gameRepository.deleteGame(deleteTarget.id)
       setDeleteTarget(null)
       if(pageGames.length===1&&page>1) setPage(current=>current-1); else setReload(current=>current+1)
     } catch(e) { setDeleteError(e.message) }

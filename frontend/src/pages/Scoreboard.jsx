@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Flag, History, Minus, Plus, RefreshCw, RotateCcw, Trash2, Trophy, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
-import { api } from '../lib/api'
+import { gameRepository } from '../lib/gameRepository'
 import { useLanguage } from '../lib/language'
 
 const HISTORY_PAGE_SIZE=20
@@ -15,7 +15,7 @@ export default function Scoreboard() {
   useEffect(()=>{
     let active=true
     setGame(null); setError('')
-    api(`/games/${id}`).then(data=>{if(active)setGame(normalizeGame(data))}).catch(e=>{if(active)setError(e.message)})
+    gameRepository.getGame(id).then(data=>{if(active)setGame(normalizeGame(data))}).catch(e=>{if(active)setError(e.message)})
     return ()=>{active=false}
   },[id])
   const applyMutation=(mutation,kind)=>setGame(current=>{
@@ -26,11 +26,11 @@ export default function Scoreboard() {
     return {...current,status:mutation.status,standings:mutation.standings,roundCount:mutation.roundCount,updatedAt:mutation.updatedAt,rounds,hasMoreRounds:mutation.roundCount>rounds.length}
   })
   const action=async(fn,kind)=>{setBusy(true);setError('');try{const mutation=await fn();applyMutation(mutation,kind)}catch(e){setError(e.message)}finally{setBusy(false)}}
-  const undo=()=>action(()=>api(`/games/${id}/rounds/latest`,{method:'DELETE'}),'undo')
-  const toggleStatus=()=>action(()=>api(`/games/${id}/status`,{method:'PATCH',body:JSON.stringify({status:game.status==='ACTIVE'?'FINISHED':'ACTIVE'})}))
-  const loadMore=async()=>{const before=game.rounds.at(-1)?.roundNumber;if(!before)return;setLoadingMore(true);setError('');try{const page=await api(`/games/${id}/rounds?beforeRound=${before}&limit=${HISTORY_PAGE_SIZE}`);setGame(current=>({...current,rounds:[...current.rounds,...page.items.filter(item=>!current.rounds.some(round=>round.id===item.id))],hasMoreRounds:page.hasMore}))}catch(e){setError(e.message)}finally{setLoadingMore(false)}}
-  const rematch=async()=>{setBusy(true);setError('');try{const next=await api(`/games/${id}/rematch`,{method:'POST'});nav(`/games/${next.id}`)}catch(e){setError(e.message)}finally{setBusy(false)}}
-  const deleteGame=async()=>{setBusy(true);setError('');try{await api(`/games/${id}`,{method:'DELETE'});nav('/',{replace:true})}catch(e){setError(e.message);setDeleteOpen(false)}finally{setBusy(false)}}
+  const undo=()=>action(()=>gameRepository.undoRound(id),'undo')
+  const toggleStatus=()=>action(()=>gameRepository.setStatus(id,game.status==='ACTIVE'?'FINISHED':'ACTIVE'))
+  const loadMore=async()=>{const before=game.rounds.at(-1)?.roundNumber;if(!before)return;setLoadingMore(true);setError('');try{const page=await gameRepository.listRounds(id,{beforeRound:before,limit:HISTORY_PAGE_SIZE});setGame(current=>({...current,rounds:[...current.rounds,...page.items.filter(item=>!current.rounds.some(round=>round.id===item.id))],hasMoreRounds:page.hasMore}))}catch(e){setError(e.message)}finally{setLoadingMore(false)}}
+  const rematch=async()=>{setBusy(true);setError('');try{const next=await gameRepository.rematchGame(id);nav(`/games/${next.id}`)}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const deleteGame=async()=>{setBusy(true);setError('');try{await gameRepository.deleteGame(id);nav('/',{replace:true})}catch(e){setError(e.message);setDeleteOpen(false)}finally{setBusy(false)}}
   if(!game)return <Shell compact><div className="page-container"><button className="text-back" onClick={()=>nav('/')}><ArrowLeft size={18}/>{t.back}</button>{error?<div className="empty-state">{error}</div>:<Loading/>}</div></Shell>
 
   const leader=game.standings[0]; const hasRounds=game.roundCount>0
@@ -62,7 +62,7 @@ export default function Scoreboard() {
       {error&&<div className="form-error floating-error">{error}</div>}
     </div>
     {game.status==='ACTIVE'&&<button className="mobile-add-score" onClick={()=>setModal(true)}><Plus size={23}/><span>{t.addRound}</span></button>}
-    {modal&&<RoundModal game={game} t={t} ar={ar} onClose={()=>setModal(false)} onSave={async body=>{await action(()=>api(`/games/${id}/rounds`,{method:'POST',body:JSON.stringify(body)}),'add');setModal(false)}} busy={busy}/>}
+    {modal&&<RoundModal game={game} t={t} ar={ar} onClose={()=>setModal(false)} onSave={async body=>{await action(()=>gameRepository.addRound(id,body),'add');setModal(false)}} busy={busy}/>}
     {deleteOpen&&<div className="modal-backdrop" onMouseDown={e=>!busy&&e.target===e.currentTarget&&setDeleteOpen(false)}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-game-title"><div className="confirm-danger-icon"><Trash2 size={24}/></div><h2 id="delete-game-title">{t.deleteGame}</h2><p>{t.deleteGameMessage}</p><div className="confirm-actions"><button type="button" className="secondary-button" onClick={()=>setDeleteOpen(false)} disabled={busy}>{t.cancel}</button><button type="button" className="danger-button" onClick={deleteGame} disabled={busy}>{busy?<span className="button-spinner"/>:<><Trash2 size={18}/>{t.deleteForever}</>}</button></div></section></div>}
   </div></Shell>
 }

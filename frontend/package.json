@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:local": "vite --host 0.0.0.0 --mode offline",
     "build": "vite build",
+    "build:local": "vite build --mode offline",
+    "test:local": "node --test tests/localGameRepository.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
