@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Flag, History, Minus, 
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
+import { evaluateRound } from '../lib/rulesEngine'
 import { useLanguage } from '../lib/language'
 
 const HISTORY_PAGE_SIZE=20
@@ -30,8 +31,8 @@ export default function Scoreboard() {
   const toggleStatus=()=>action(()=>gameRepository.setStatus(id,game.status==='ACTIVE'?'FINISHED':'ACTIVE'))
   const loadMore=async()=>{const before=game.rounds.at(-1)?.roundNumber;if(!before)return;setLoadingMore(true);setError('');try{const page=await gameRepository.listRounds(id,{beforeRound:before,limit:HISTORY_PAGE_SIZE});setGame(current=>({...current,rounds:[...current.rounds,...page.items.filter(item=>!current.rounds.some(round=>round.id===item.id))],hasMoreRounds:page.hasMore}))}catch(e){setError(e.message)}finally{setLoadingMore(false)}}
   const rematch=async()=>{setBusy(true);setError('');try{const next=await gameRepository.rematchGame(id);nav(`/games/${next.id}`)}catch(e){setError(e.message)}finally{setBusy(false)}}
-  const deleteGame=async()=>{setBusy(true);setError('');try{await gameRepository.deleteGame(id);nav('/',{replace:true})}catch(e){setError(e.message);setDeleteOpen(false)}finally{setBusy(false)}}
-  if(!game)return <Shell compact><div className="page-container"><button className="text-back" onClick={()=>nav('/')}><ArrowLeft size={18}/>{t.back}</button>{error?<div className="empty-state">{error}</div>:<Loading/>}</div></Shell>
+  const deleteGame=async()=>{setBusy(true);setError('');try{await gameRepository.deleteGame(id);nav('/dashboard',{replace:true})}catch(e){setError(e.message);setDeleteOpen(false)}finally{setBusy(false)}}
+  if(!game)return <Shell compact><div className="page-container"><button className="text-back" onClick={()=>nav('/dashboard')}><ArrowLeft size={18}/>{t.back}</button>{error?<div className="empty-state">{error}</div>:<Loading/>}</div></Shell>
 
   const leader=game.standings[0]; const hasRounds=game.roundCount>0
   const thresholdLoser=game.thresholdRule==='LOSE_AT_OR_ABOVE'&&game.targetScore!=null
@@ -51,7 +52,7 @@ export default function Scoreboard() {
   const dangerScore=thresholdLoser?.total??game.standings[game.standings.length-1]?.total??0
 
   return <Shell compact><div className="scoreboard">
-    <section className="score-hero"><div className="page-container"><button className="hero-back" onClick={()=>nav('/')}><ArrowLeft size={18}/>{t.home}</button><div className="score-title-row"><div><div className="game-meta"><span className={`status-pill ${game.status.toLowerCase()}`}>{game.status==='ACTIVE'?t.live:t.finished}</span><span>{game.presetName}</span><span>•</span><span>{game.roundCount}{game.roundLimit?` / ${game.roundLimit}`:''} {t.rounds}</span></div><h1>{game.title}</h1></div><div className="score-actions">{game.status==='FINISHED'&&<button className="hero-secondary rematch-button" onClick={rematch} disabled={busy}><RefreshCw size={17}/>{t.playAgain}</button>}{hasRounds&&game.status==='ACTIVE'&&<button className="hero-secondary" onClick={undo} disabled={busy}><RotateCcw size={17}/>{t.undo}</button>}<button className="hero-secondary" onClick={toggleStatus} disabled={busy}><Flag size={17}/>{game.status==='ACTIVE'?t.finish:t.reopen}</button><button className="hero-secondary delete-game-button" onClick={()=>setDeleteOpen(true)} disabled={busy} title={t.deleteGame} aria-label={t.deleteGame}><Trash2 size={17}/><span>{t.deleteGame}</span></button></div></div>
+    <section className="score-hero"><div className="page-container"><button className="hero-back" onClick={()=>nav('/dashboard')}><ArrowLeft size={18}/>{t.home}</button><div className="score-title-row"><div><div className="game-meta"><span className={`status-pill ${game.status.toLowerCase()}`}>{game.status==='ACTIVE'?t.live:t.finished}</span><span>{game.presetName}</span><span>•</span><span>{game.roundCount}{game.roundLimit?` / ${game.roundLimit}`:''} {t.rounds}</span></div><h1>{game.title}</h1></div><div className="score-actions">{game.status==='FINISHED'&&<button className="hero-secondary rematch-button" onClick={rematch} disabled={busy}><RefreshCw size={17}/>{t.playAgain}</button>}{hasRounds&&game.status==='ACTIVE'&&<button className="hero-secondary" onClick={undo} disabled={busy}><RotateCcw size={17}/>{t.undo}</button>}<button className="hero-secondary" onClick={toggleStatus} disabled={busy}><Flag size={17}/>{game.status==='ACTIVE'?t.finish:t.reopen}</button><button className="hero-secondary delete-game-button" onClick={()=>setDeleteOpen(true)} disabled={busy} title={t.deleteGame} aria-label={t.deleteGame}><Trash2 size={17}/><span>{t.deleteGame}</span></button></div></div>
       {leader&&hasRounds&&(automaticResult
         ? <div className="leader-banner game-over-banner"><div className="leader-crown"><Trophy size={24}/></div><div><small>{t.gameOver}</small><strong>{winnerName} {t.wins}</strong></div>{slamScore?<div className="result-reason">{slamScore.name} {slamScore.points>0?(ar?'نجح بطلب ١٣':'made bid 13'):(ar?'خسر طلب ١٣':'missed bid 13')}</div>:thresholdLoser&&<div className="result-reason">{thresholdLoser.name} {t.reached} {game.targetScore}</div>}{roundsFinished&&!slamScore&&<div className="result-reason">{game.roundCount} / {game.roundLimit} {t.rounds}</div>}</div>
         : <div className="leader-banner"><div className="leader-crown"><Crown size={24}/></div><div><small>{t.leading}</small><strong>{leader.name}</strong></div><div className="leader-score"><b>{leader.total}</b><span>{t.points}</span></div>{game.targetScore!=null&&<div className="target-progress"><span>{game.thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:t.targetLabel} {game.targetScore}</span><div><i style={{width:`${Math.min(100,Math.abs((game.thresholdRule==='LOSE_AT_OR_ABOVE'?dangerScore:leader.total)/game.targetScore*100))}%`}}/></div></div>}</div>)}
@@ -75,21 +76,24 @@ function RoundModal({game,t,ar,onClose,onSave,busy}) {
   const [entries,setEntries]=useState(Object.fromEntries(participants.map(p=>[p.key,initialEntry(p)])))
   const [note,setNote]=useState(''); const [ruleCode,setRuleCode]=useState(game.presetCode==='trex-complex'?'COMPLEX':'KING')
   const [bidderTeam,setBidderTeam]=useState(participants[0]?.teamNumber||1); const [contractBid,setContractBid]=useState(7); const [contractTricks,setContractTricks]=useState(7)
+  const [validation,setValidation]=useState({ok:false,error:null})
   const field=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value===''?'':Number(value)}})
   const toggle=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value}})
   const scoreInputs=participants.map(p=>({
     ...(game.scoreMode==='TEAM'?{teamNumber:p.teamNumber}:{playerId:p.playerIds[0]}),
     ...entries[p.key], points:Number(entries[p.key].points||0)
   }))
-  const valid=roundValid(game,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks})
-  const submit=e=>{e.preventDefault();if(valid.ok)onSave({note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),scores:scoreInputs})}
+  const roundRequest={note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),scores:scoreInputs}
+  const requestKey=JSON.stringify(roundRequest)
+  useEffect(()=>{let active=true;setValidation({ok:false,error:null});evaluateRound(game,roundRequest).then(()=>{if(active)setValidation({ok:true,error:null})}).catch(error=>{if(active)setValidation({ok:false,error:error.message})});return()=>{active=false}},[game,requestKey])
+  const submit=e=>{e.preventDefault();if(validation.ok)onSave(roundRequest)}
   const helper=roundHelper(game,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks},ar)
   return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="round-modal"><div className="modal-head"><div><span className="eyebrow green">{t.round} {game.roundCount+1}{game.roundLimit?` / ${game.roundLimit}`:''}</span><h2>{roundTitle(game,ar)}</h2></div><button onClick={onClose}><X size={22}/></button></div><form onSubmit={submit}>
-    <div className={`rule-helper ${valid.ok?'ready':'waiting'}`}><strong>{helper.title}</strong><span>{helper.text}</span></div>
+    <div className={`rule-helper ${validation.ok?'ready':'waiting'}`}><strong>{helper.title}</strong><span>{helper.text}</span>{validation.error&&<small>{validation.error}</small>}</div>
     {(game.presetCode==='trex'||game.presetCode==='trex-complex')&&<label className="contract-picker">{ar?'العقد':'Contract'}<select value={ruleCode} onChange={e=>setRuleCode(e.target.value)}>{trexContracts(game.presetCode,ar).map(c=><option key={c.code} value={c.code} disabled={game.rounds.filter(r=>r.ruleCode===c.code).length>=4}>{c.label}</option>)}</select></label>}
     {game.presetCode==='tarneeb'&&<div className="contract-grid"><label>{ar?'الفريق الطالب':'Bidder team'}<select value={bidderTeam} onChange={e=>setBidderTeam(Number(e.target.value))}>{participants.map(p=><option key={p.key} value={p.teamNumber}>{p.name}</option>)}</select></label><label>{ar?'الطلب':'Bid'}<input type="number" min="7" max="13" value={contractBid} onChange={e=>setContractBid(Number(e.target.value))}/></label><label>{ar?'الأكلات المأخوذة':'Tricks won'}<input type="number" min="0" max="13" value={contractTricks} onChange={e=>setContractTricks(Number(e.target.value))}/></label></div>}
     <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={game} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks}/>)}</div>
-    <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!valid.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{t.saveRound}</>}</button></div>
+    <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!validation.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{t.saveRound}</>}</button></div>
   </form></div></div>
 }
 
@@ -117,18 +121,6 @@ function TrexControls({id,entry,ruleCode,ar,field}) {
   if(ruleCode==='DIAMONDS'||ruleCode==='COMPLEX') controls.push(<label className="compact-input" key="d">♦<input type="number" min="0" max="13" value={entry.diamonds} onChange={e=>field(id,'diamonds',e.target.value)}/></label>)
   if(ruleCode==='COLLECTIONS'||ruleCode==='COMPLEX') controls.push(<label className="compact-input" key="c">{ar?'أكلات':'Tricks'}<input type="number" min="0" max="13" value={entry.tricks} onChange={e=>field(id,'tricks',e.target.value)}/></label>)
   return controls
-}
-
-function roundValid(game,participants,entries,state) {
-  const values=participants.map(p=>entries[p.key]); const sum=name=>values.reduce((n,v)=>n+Number(v[name]||0),0); const preset=game.presetCode
-  if(preset.startsWith('leekha')) return {ok:sum('points')===36}
-  if(preset==='400') { const minTotal=Math.max(...game.standings.map(s=>s.total),0)>=50?14:Math.max(...game.standings.map(s=>s.total),0)>=40?13:Math.max(...game.standings.map(s=>s.total),0)>=30?12:11; return {ok:sum('bid')>=minTotal&&participants.every(p=>entries[p.key].bid>=min400Bid(game,p)&&entries[p.key].bid<=13)} }
-  if(preset==='tarneeb') return {ok:state.contractBid>=7&&state.contractBid<=13&&state.contractTricks>=0&&state.contractTricks<=13}
-  if(preset==='trex'||preset==='trex-complex') { if(state.ruleCode==='KING')return {ok:sum('kingHearts')===1}; if(state.ruleCode==='QUEENS')return {ok:sum('queens')===4}; if(state.ruleCode==='DIAMONDS')return {ok:sum('diamonds')===13}; if(state.ruleCode==='COLLECTIONS')return {ok:sum('tricks')===13}; if(state.ruleCode==='COMPLEX')return {ok:sum('kingHearts')===1&&sum('queens')===4&&sum('diamonds')===13&&sum('tricks')===13}; return {ok:new Set(values.map(v=>Number(v.finishPosition))).size===4} }
-  if(preset==='basra') return {ok:sum('cardPoints')===13&&values.filter(v=>v.majority).length<=1}
-  if(preset==='belote') return {ok:sum('cardPoints')===162}
-  if(preset==='hand') return {ok:values.some(v=>Number(v.cardPoints)===0)&&values.every(v=>v.cardPoints>=0&&v.cardPoints<=300)}
-  return {ok:true}
 }
 
 function roundHelper(game,participants,entries,state,ar) {

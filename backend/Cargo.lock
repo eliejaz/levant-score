@@ -1065,6 +1065,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "jsonwebtoken",
+ "levant-score-rules",
  "serde",
  "serde_json",
  "sqlx",
@@ -1075,6 +1076,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "levant-score-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

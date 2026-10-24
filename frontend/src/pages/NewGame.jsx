@@ -22,7 +22,7 @@ export default function NewGame() {
   const submit=async()=>{setSaving(true);setError('');try{const game=await gameRepository.createGame({title,presetCode:selected.code,customPresetName:customName||null,teamMode,scoreDirection:direction,targetScore:target===''?null:Number(target),thresholdRule,scoreMode,roundLimit:selected.roundLimit,players});nav(`/games/${game.id}`)}catch(e){setError(e.message)}finally{setSaving(false)}}
   const limitLabel=thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:thresholdRule==='WIN_AT_OR_ABOVE'?t.winningTarget:t.target
   return <Shell compact><div className="new-game page-container narrow">
-    <button className="text-back" onClick={()=>step===2?setStep(1):nav('/')}><ChevronLeft size={18}/>{t.back}</button>
+    <button className="text-back" onClick={()=>step===2?setStep(1):nav('/dashboard')}><ChevronLeft size={18}/>{t.back}</button>
     <div className="wizard-progress"><span className="active"><b>1</b>{t.pickGame}</span><i/><span className={step===2?'active':''}><b>2</b>{t.gameDetails}</span></div>
     {step===1 ? <><div className="page-title"><span className="eyebrow green">{t.gameSetup}</span><h1>{t.pickGame}</h1><p>{ar?'اختَر اللعبة ومنظبطلك طريقة الحساب.':'Choose a favorite, or make your own rules.'}</p></div>
       {!presets?<Loading/>:<div className="preset-grid">{presets.map(p=><button key={p.code} className={`preset-card accent-${p.accent}`} onClick={()=>choose(p)}><span className="preset-suit">{presetSuit(p.code)}</span><div><h3>{ar?p.nameAr:p.name}</h3><p>{ar?p.descriptionAr:p.description}</p><span><Users size={14}/>{playerCountLabel(p,ar)} · {p.teamMode?t.teams:t.players}</span></div><ArrowRight className="preset-arrow" size={19}/></button>)}</div>}

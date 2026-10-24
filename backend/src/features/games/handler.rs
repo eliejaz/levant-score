@@ -281,45 +281,7 @@ pub async fn add_round(
             "Reopen the game before adding a round".into(),
         ));
     }
-    let players_by_id: HashMap<Uuid, DbPlayer> =
-        game.players.iter().cloned().map(|p| (p.id, p)).collect();
-    let mut used = HashSet::new();
-    let mut entries = Vec::new();
-    let mut points = Vec::new();
-    for input in &request.scores {
-        let player = if game.game.mode() == ScoreMode::Team && input.team_number.is_some() {
-            game.players
-                .iter()
-                .find(|p| p.team_number == input.team_number)
-                .cloned()
-                .ok_or_else(|| bad("Unknown team"))?
-        } else {
-            input
-                .player_id
-                .and_then(|pid| players_by_id.get(&pid).cloned())
-                .ok_or_else(|| bad("Unknown player"))?
-        };
-        if !used.insert(player.id) {
-            return Err(bad("Duplicate score"));
-        }
-        let calculated = rules::calculate(&game, input, &request, &player)?;
-        entries.push((player, calculated));
-        points.push(calculated);
-    }
-    let expected = if game.game.mode() == ScoreMode::Team {
-        game.players
-            .iter()
-            .map(|p| p.team_number)
-            .collect::<HashSet<_>>()
-            .len()
-    } else {
-        game.players.len()
-    };
-    require(
-        used.len() == expected,
-        "Add one score for every player or team",
-    )?;
-    rules::validate(&game, &request, &points)?;
+    let rules::Evaluation { entries, finished } = rules::evaluate(&game, &request)?;
 
     let round_id = Uuid::new_v4();
     let now = Utc::now();
@@ -349,8 +311,7 @@ pub async fn add_round(
         });
     }
     game.game.round_count += 1;
-    let slam = game.game.preset_code == "400" && request.scores.iter().any(|s| s.bid == Some(13));
-    let new_status = if slam || game_ended(&game) {
+    let new_status = if finished {
         Status::Finished
     } else {
         Status::Active
@@ -666,48 +627,6 @@ fn standings_from_players(game: &DbGame, players: &[DbPlayer]) -> Vec<StandingVi
     totals
 }
 
-fn game_ended(data: &GameData) -> bool {
-    if data
-        .game
-        .round_limit
-        .is_some_and(|limit| data.game.round_count >= limit)
-    {
-        return true;
-    }
-    let Some(target) = data.game.target_score else {
-        return false;
-    };
-    if data.game.threshold() == ThresholdRule::None || data.game.round_count == 0 {
-        return false;
-    }
-    let current = standings(data);
-    if data.game.threshold() == ThresholdRule::PlayerWinWithPartnerPositive {
-        let mut threshold = target;
-        loop {
-            let teams: HashSet<i32> = current
-                .iter()
-                .filter(|s| s.total >= threshold)
-                .filter_map(|s| s.team_number.map(|team| (s, team)))
-                .filter(|(s, team)| {
-                    current
-                        .iter()
-                        .filter(|p| p.team_number == Some(*team) && p.key != s.key)
-                        .all(|p| p.total > 0)
-                })
-                .map(|(_, team)| team)
-                .collect();
-            if teams.len() == 1 {
-                return true;
-            }
-            if teams.len() < 2 {
-                return false;
-            }
-            threshold += 10;
-        }
-    }
-    current.iter().any(|s| s.total >= target)
-}
-
 fn summary(game: &DbGame, players: &[DbPlayer]) -> GameSummary {
     GameSummary {
         id: game.id,
@@ -880,48 +799,6 @@ mod tests {
         assert_eq!(result[0].name, "P1 & P2");
         data.game.score_mode = "INDIVIDUAL".into();
         assert_eq!(standings(&data).len(), 4);
-    }
-
-    #[test]
-    fn leekha_and_round_limit_end_conditions_match_existing_behavior() {
-        let mut leekha = game_data(
-            "leekha-team",
-            ScoreMode::Individual,
-            ThresholdRule::LoseAtOrAbove,
-            Some(101),
-            None,
-        );
-        add_players_and_scores(&mut leekha, &[(1, 101), (1, 0), (2, 0), (2, 0)]);
-        assert!(game_ended(&leekha));
-        let mut hand = game_data(
-            "hand",
-            ScoreMode::Individual,
-            ThresholdRule::None,
-            None,
-            Some(1),
-        );
-        add_players_and_scores(&mut hand, &[(0, 0), (0, 10)]);
-        assert!(game_ended(&hand));
-    }
-
-    #[test]
-    fn four_hundred_requires_a_positive_partner() {
-        let mut data = game_data(
-            "400",
-            ScoreMode::Individual,
-            ThresholdRule::PlayerWinWithPartnerPositive,
-            Some(41),
-            None,
-        );
-        add_players_and_scores(&mut data, &[(1, 41), (1, 0), (2, 10), (2, 10)]);
-        assert!(!game_ended(&data));
-        let partner = data.players[1].id;
-        data.players
-            .iter_mut()
-            .find(|player| player.id == partner)
-            .unwrap()
-            .total_score = 1;
-        assert!(game_ended(&data));
     }
 
     fn game_data(

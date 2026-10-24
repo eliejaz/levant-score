@@ -4,17 +4,18 @@ import { useAuth } from './lib/auth'
 import Loading from './components/Loading'
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))
+const WelcomePage = lazy(() => import('./pages/WelcomePage'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const NewGame = lazy(() => import('./pages/NewGame'))
 const Scoreboard = lazy(() => import('./pages/Scoreboard'))
 
-function Protected({ children }) { const { user } = useAuth(); return user ? children : <Navigate to="/auth" replace /> }
+function Protected({ children }) { const { user,mode } = useAuth(); return user ? children : <Navigate to={mode==='api'?'/auth?tab=login':'/'} replace /> }
 
 export default function App() {
-  const { user } = useAuth()
   return <Suspense fallback={<Loading/>}><Routes>
-    <Route path="/auth" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
-    <Route path="/" element={<Protected><Dashboard /></Protected>} />
+    <Route path="/" element={<WelcomePage />} />
+    <Route path="/auth" element={<AuthPage />} />
+    <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
     <Route path="/games/new" element={<Protected><NewGame /></Protected>} />
     <Route path="/games/:id" element={<Protected><Scoreboard /></Protected>} />
     <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,6 +1,6 @@
 import { api } from './api'
 import { localGameRepository } from './localGameRepository'
-import { isLocalMode } from './runtime'
+import { getStorageMode } from './runtime'
 
 const apiRepository={
   getPresets:()=>api('/presets'),
@@ -15,5 +15,6 @@ const apiRepository={
   setStatus:(id,status)=>api(`/games/${id}/status`,{method:'PATCH',body:JSON.stringify({status})}),
 }
 
-export const gameRepository=isLocalMode?localGameRepository:apiRepository
+const currentRepository=()=>getStorageMode()==='local'?localGameRepository:apiRepository
+export const gameRepository=Object.fromEntries(Object.keys(apiRepository).map(method=>[method,(...args)=>currentRepository()[method](...args)]))
 

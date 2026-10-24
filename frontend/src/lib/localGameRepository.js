@@ -1,4 +1,5 @@
 import { gamePresets, getPreset } from './presets.js'
+import { evaluateRound } from './rulesEngine.js'
 
 const STORAGE_KEY='levant-score:local:v1'
 const HISTORY_PAGE_SIZE=20
@@ -54,17 +55,14 @@ export const localGameRepository={
     if(game.status==='FINISHED') throw conflict('Reopen the game before adding a round')
     if(!request.scores?.length) throw bad('scores must not be empty')
     if((request.note?.length||0)>240) throw bad('note must be at most 240 characters')
-    const entries=resolveEntries(game,request)
-    const points=entries.map(({input,player})=>normalizeZero(calculate(game,input,request,player)))
-    validateRound(game,request,points)
+    const evaluation=await evaluateRound(game,request)
     const now=new Date().toISOString(), roundId=uuid()
-    const deltas=entries.map(({player},index)=>({playerId:player.id,points:points[index]}))
+    const deltas=evaluation.scores.map(score=>({playerId:score.playerId,points:score.points}))
     for(const delta of deltas) game.players.find(player=>player.id===delta.playerId).totalScore+=delta.points
     game.roundCount+=1
     const round={id:roundId,roundNumber:game.roundCount,ruleCode:request.ruleCode||null,note:request.note?.trim()||null,createdAt:now,scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas}
     game.rounds.unshift(round)
-    const slam=game.presetCode==='400'&&request.scores.some(score=>Number(score.bid)===13)
-    game.status=slam||gameEnded(game)?'FINISHED':'ACTIVE'
+    game.status=evaluation.finished?'FINISHED':'ACTIVE'
     game.updatedAt=now
     if(game.status==='FINISHED'){state.currentGame=null;state.historyGame=game}else state.currentGame=game
     writeState(state)
@@ -98,93 +96,6 @@ export const localGameRepository={
   },
 }
 
-function resolveEntries(game,request){
-  const used=new Set(), entries=request.scores.map(input=>{
-    const player=game.scoreMode==='TEAM'&&input.teamNumber!=null?game.players.find(item=>item.teamNumber===Number(input.teamNumber)):game.players.find(item=>item.id===input.playerId)
-    if(!player) throw bad(game.scoreMode==='TEAM'?'Unknown team':'Unknown player')
-    if(used.has(player.id)) throw bad('Duplicate score')
-    used.add(player.id); return {input,player}
-  })
-  const expected=game.scoreMode==='TEAM'?new Set(game.players.map(player=>player.teamNumber)).size:game.players.length
-  if(used.size!==expected) throw bad('Add one score for every player or team')
-  return entries
-}
-
-function calculate(game,input,request,player){
-  if(game.presetCode==='400'){
-    const bid=requiredNumber(input.bid,"Enter every player's bid")
-    if(bid<2||bid>13) throw bad('400 bids must be between 2 and 13')
-    if(bid===13)return input.made===true?41:-41
-    const values={2:2,3:3,4:4,5:10,6:12,7:14,8:16,9:27,10:30,11:33,12:36}
-    const value=bid>=5&&bid<=6&&player.totalScore>=30?bid:values[bid]
-    return input.made===true?value:-value
-  }
-  if(game.presetCode==='tarneeb'){
-    const bidder=requiredNumber(request.bidderTeam,'Choose the team that won the bid'), bid=requiredNumber(request.bid,'Enter the winning bid'), tricks=requiredNumber(request.tricks,"Enter the bidder's tricks"), team=requiredNumber(input.teamNumber,'Missing team')
-    return team===bidder?(tricks>=bid?tricks:-bid):(tricks>=bid?0:13-tricks)
-  }
-  if(game.presetCode==='trex'||game.presetCode==='trex-complex'){
-    if(request.ruleCode==='KING')return -75*number(input.kingHearts)
-    if(request.ruleCode==='QUEENS')return -25*number(input.queens)
-    if(request.ruleCode==='DIAMONDS')return -10*number(input.diamonds)
-    if(request.ruleCode==='COLLECTIONS')return -15*number(input.tricks)
-    if(request.ruleCode==='COMPLEX')return -75*number(input.kingHearts)-25*number(input.queens)-10*number(input.diamonds)-15*number(input.tricks)
-    if(request.ruleCode==='TREX'){
-      const position=requiredNumber(input.finishPosition,'Choose each finishing position')
-      if(position<1||position>4)throw bad('Trex positions must be 1 to 4')
-      return [200,150,100,50][position-1]
-    }
-    throw bad('Unknown Trex contract')
-  }
-  if(game.presetCode==='basra')return requiredNumber(input.cardPoints,'Enter captured card points')+requiredNumber(input.basras,'Enter the number of Basras')*10+(input.majority===true?3:0)
-  if(game.presetCode==='belote')return requiredNumber(input.cardPoints,'Enter card points')+requiredNumber(input.bonusPoints,'Enter declarations and bonuses')
-  if(game.presetCode==='hand')return requiredNumber(input.cardPoints,"Enter each player's cards left")
-  return requiredNumber(input.points,'Enter a score')
-}
-
-function validateRound(game,request,points){
-  if(game.presetCode.startsWith('leekha')){
-    ensure(points.every(value=>value>=0&&value<=36),'Leekha scores must be between 0 and 36')
-    ensure(sum(points)===36,'A Leekha hand must distribute exactly 36 points'); return
-  }
-  if(game.presetCode==='400'){
-    const bids=request.scores.map(score=>requiredNumber(score.bid,"Enter every player's bid")), high=Math.max(0,...game.players.map(player=>player.totalScore)), requiredTotal=high>=50?14:high>=40?13:high>=30?12:11
-    ensure(sum(bids)>=requiredTotal,`The bids must total at least ${requiredTotal} at the current table score`)
-    request.scores.forEach(score=>{const player=game.players.find(item=>item.id===score.playerId), minimum=player.totalScore>=50?5:player.totalScore>=40?4:player.totalScore>=30?3:2;ensure(Number(score.bid)>=minimum,`${player.name} must bid at least ${minimum} at their current score`);ensure(typeof score.made==='boolean','Choose made or missed for every 400 bid')}); return
-  }
-  if(game.presetCode==='tarneeb'){
-    const bidder=requiredNumber(request.bidderTeam,'Choose the bidder team'), bid=requiredNumber(request.bid,'Enter the bid'), tricks=requiredNumber(request.tricks,'Enter tricks won')
-    ensure(request.scores.some(score=>Number(score.teamNumber)===bidder),'Unknown bidder team'); ensure(bid>=7&&bid<=13,'Tarneeb bids must be from 7 to 13'); ensure(tricks>=0&&tricks<=13,'Tricks must be from 0 to 13'); return
-  }
-  if(game.presetCode==='trex'||game.presetCode==='trex-complex'){
-    const allowed=game.presetCode==='trex-complex'?['COMPLEX','TREX']:['KING','QUEENS','DIAMONDS','COLLECTIONS','TREX'], code=request.ruleCode
-    ensure(allowed.includes(code),'Choose a valid contract for this Trex mode'); ensure(game.rounds.filter(round=>round.ruleCode===code).length<4,'That contract has already been played in all four kingdoms')
-    const total=field=>sum(request.scores.map(score=>number(score[field])))
-    if(code==='KING')ensure(total('kingHearts')===1,'Exactly one player must capture the King of Hearts')
-    if(code==='QUEENS')ensure(total('queens')===4,'The four queens must all be assigned')
-    if(code==='DIAMONDS')ensure(total('diamonds')===13,'The 13 diamonds must all be assigned')
-    if(code==='COLLECTIONS')ensure(total('tricks')===13,'The 13 tricks must all be assigned')
-    if(code==='COMPLEX'){ensure(total('kingHearts')===1,'Exactly one King of Hearts must be assigned');ensure(total('queens')===4,'The four queens must all be assigned');ensure(total('diamonds')===13,'The 13 diamonds must all be assigned');ensure(total('tricks')===13,'The 13 tricks must all be assigned')}
-    if(code==='TREX')ensure(new Set(request.scores.map(score=>Number(score.finishPosition))).size===4&&request.scores.every(score=>Number(score.finishPosition)>=1&&Number(score.finishPosition)<=4),'Use each Trex finish position exactly once')
-    return
-  }
-  if(game.presetCode==='basra'){const cards=request.scores.map(score=>requiredNumber(score.cardPoints,'Enter card points'));ensure(sum(cards)===13,'Lebanese Basra has exactly 13 special-card points per hand');ensure(request.scores.every(score=>number(score.basras)>=0&&number(score.basras)<=52),'Basra count is invalid');ensure(request.scores.filter(score=>score.majority===true).length<=1,'Only one side can receive the 3-point card majority');return}
-  if(game.presetCode==='belote'){const cards=request.scores.map(score=>requiredNumber(score.cardPoints,'Enter card points'));ensure(sum(cards)===162,'Belote card points must total 162 before bonuses');ensure(request.scores.every(score=>number(score.bonusPoints)>=0&&number(score.bonusPoints)<=500),'Belote bonuses must be from 0 to 500');return}
-  if(game.presetCode==='hand'){ensure(points.every(value=>value>=0&&value<=300),'Hand penalties must be between 0 and 300');ensure(points.includes(0),'At least one player must finish the hand with 0 points');return}
-  ensure(points.every(value=>value>=-9999&&value<=9999),'Score is outside the supported range')
-}
-
-function gameEnded(game){
-  if(game.roundLimit!=null&&game.roundCount>=game.roundLimit)return true
-  if(game.targetScore==null||game.thresholdRule==='NONE'||game.roundCount===0)return false
-  const current=standings(game)
-  if(game.thresholdRule==='PLAYER_WIN_WITH_PARTNER_POSITIVE'){
-    let threshold=game.targetScore
-    while(true){const teams=new Set(current.filter(item=>item.total>=threshold&&item.teamNumber!=null&&current.filter(partner=>partner.teamNumber===item.teamNumber&&partner.key!==item.key).every(partner=>partner.total>0)).map(item=>item.teamNumber));if(teams.size===1)return true;if(teams.size<2)return false;threshold+=10}
-  }
-  return current.some(item=>item.total>=game.targetScore)
-}
-
 function standings(game){
   const groups=new Map()
   for(const player of game.players){const key=game.scoreMode==='TEAM'?`team-${player.teamNumber}`:player.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(player)}
@@ -212,9 +123,6 @@ function requireGame(state,id){const game=state.currentGame?.id===id?state.curre
 function readState(){try{const parsed=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');return parsed?.version===1?parsed:clone(EMPTY_STATE)}catch{return clone(EMPTY_STATE)}}
 function writeState(state){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(error){throw new Error(error?.name==='QuotaExceededError'?'Browser storage is full. Export or delete a game and try again.':'Could not save this game on this device.')}}
 function nullableNumber(value){return value==null||value===''?null:Number(value)}
-function normalizeZero(value){return Object.is(value,-0)?0:value}
-function requiredNumber(value,message){if(value==null||value===''||!Number.isFinite(Number(value)))throw bad(message);return Number(value)}
-function number(value){return Number(value)||0}
 function sum(values){return values.reduce((total,value)=>total+Number(value),0)}
 function ensure(condition,message){if(!condition)throw bad(message)}
 function bad(message){return new Error(message)}

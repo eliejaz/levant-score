@@ -8,13 +8,14 @@ A bilingual, mobile-first scorekeeper for Lebanese and Arab card nights. It ship
 - PostgreSQL with SQLx-native migrations and explicit transactional queries
 - Stateless JWT authentication with BCrypt passwords
 - Vite + React responsive frontend, English and Arabic RTL
-- Optional browser-only/PWA build with no account, server, or database
+- Built-in browser-only/PWA mode alongside account login
 - Docker Compose for a one-command local setup
 
 ## Project structure
 
 ```text
 backend/
+├── game-rules/         Shared pure Rust scoring engine; native library + WebAssembly
 ├── src/
 │   ├── api/             HTTP router, middleware, and API errors
 │   ├── features/
@@ -35,18 +36,30 @@ frontend/
 └── Dockerfile
 ```
 
-## Cloud and offline editions
+## Account and offline modes
 
-The same React application now has two storage adapters, so the screens and card-game rules stay identical:
+One frontend deployment contains both modes. The home page explicitly offers sign-up, login, or offline play:
 
-| Edition | Build command | Storage | Sign-in |
-| --- | --- | --- | --- |
-| Cloud | `npm run build` | Rust API + Neon PostgreSQL | Required |
-| Offline | `npm run build:local` | This browser's `localStorage` | None |
+| Mode | Storage | Sign-in |
+| --- | --- | --- |
+| Account | Rust API + Neon PostgreSQL | Required |
+| Offline | This browser's `localStorage` | None |
 
 The offline edition keeps at most one active game and one finished game. Finishing another game replaces the previous history game. It also registers a service worker, so after the first successful load it can open without a network connection. Browser data is device- and browser-profile-specific and can be removed by clearing site data.
 
-For local development, use `npm run dev:local` to run the browser-only edition. Its game engine mirrors the backend validation for Leekha, 400, Tarneeb, Trex/Complex, Belote, Basra, Hand, Chinese, and custom games. Run its contract tests with `npm run test:local`.
+`backend/game-rules` is the single authoritative implementation for scoring, round validation, and automatic game-ending rules. The API links it as a native Rust library. The frontend loads the compiled `frontend/public/game_rules.wasm`, so browser validation and offline scoring execute that exact same code rather than a JavaScript rewrite. JavaScript only adapts UI/storage data into the engine contract.
+
+For local development, use the normal `npm run dev` command and choose either mode on the home page. Run `npm run test:local` to execute the browser-storage tests against the real WebAssembly engine.
+
+When changing card-game rules, rebuild the tracked browser artifact before committing:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cd frontend
+npm run rules:build
+```
+
+The normal Render frontend build does not require a Rust toolchain because the generated WebAssembly binary is committed with the source.
 
 ## Hosted deployment
 
@@ -58,7 +71,7 @@ The production app is split across three managed services:
 | Rust API | Render Docker Web Service | <https://levant-score-back.onrender.com> |
 | PostgreSQL database | Neon | Private connection; credentials are stored only in Render |
 
-The browser loads the static React app from Render, the frontend calls the Rust API over HTTPS, and the API reads and writes data in Neon PostgreSQL. The database is never contacted directly by the browser.
+The browser loads the static React app from Render. Account mode calls the Rust API over HTTPS, and the API reads and writes data in Neon PostgreSQL. Offline mode never calls the API and keeps its limited game state on the device. The database is never contacted directly by the browser.
 
 ## Run with Docker
 
@@ -100,10 +113,10 @@ npm run dev
 
 The backend and frontend development defaults both use `http://localhost:27310`. Docker keeps the backend on port `8080` only inside its private network and publishes it on host port `27310`. You can override the frontend API with `VITE_API_URL`.
 
-Run the Rust unit tests with `cargo test`. PostgreSQL integration tests additionally require a `DATABASE_URL` whose role may create temporary databases:
+Run all API and shared-engine unit tests with `cargo test --workspace`. PostgreSQL integration tests additionally require a `DATABASE_URL` whose role may create temporary databases:
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --all-targets
+DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --workspace --all-targets
 ```
 
 ## Included flows
@@ -204,19 +217,6 @@ For React Router navigation and browser refreshes, add this rule in the Static S
 
 The current frontend is available at <https://levant-score.onrender.com>.
 
-### 4. Optional browser-only deployment
-
-Create a second Render **Static Site** from the same repository. It does not need the backend, Neon, `VITE_API_URL`, or any secrets:
-
-| Setting | Value |
-| --- | --- |
-| Branch | `main` |
-| Root directory | `frontend` |
-| Build command | `npm install && npm run build:local` |
-| Publish directory | `dist` |
-
-Add the same `/*` → `/index.html` rewrite. This deployment is the offline edition; the `VITE_STORAGE_MODE=local` setting comes from the tracked `.env.offline` file used by the build script.
-
 ### Updating production
 
 Push changes to the deployed GitHub branch. With automatic deploys enabled, Render rebuilds the affected services. Otherwise, open each service and choose **Manual Deploy → Deploy latest commit**. Environment changes to `VITE_API_URL` require rebuilding the frontend; database and JWT changes require redeploying the backend.
@@ -229,7 +229,7 @@ On free plans, the backend or Neon compute may sleep while unused, so the first 
 - Keep the Render backend and Neon database in the same region.
 - The dashboard is paginated by the API, game history loads 20 hands at a time, and score mutations return only changed state.
 - The API keeps no minimum idle database connections and defaults to five maximum connections, configurable with `DB_MAX_CONNECTIONS`.
-- The frontend starts warming the API immediately and retries safe GET requests during a free-tier wake-up.
+- The frontend warms the API when account mode is selected and retries safe GET requests during a free-tier wake-up. Offline mode does not wait for the backend.
 
 ### Production security
 

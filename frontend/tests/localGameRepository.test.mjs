@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { localGameRepository as games } from '../src/lib/localGameRepository.js'
 
 globalThis.localStorage=memoryStorage()
+const rulesWasm=readFileSync(new URL('../public/game_rules.wasm',import.meta.url))
+globalThis.fetch=async()=>new Response(rulesWasm,{status:200,headers:{'content-type':'application/wasm'}})
 
 test.beforeEach(()=>localStorage.clear())
 

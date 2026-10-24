@@ -4,11 +4,14 @@ FROM rust:1.99-bookworm AS build
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY game-rules/Cargo.toml ./game-rules/Cargo.toml
+COPY game-rules/src/lib.rs ./game-rules/src/lib.rs
 COPY src/lib.rs src/main.rs ./src/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo fetch --locked
 
 COPY src ./src
+COPY game-rules ./game-rules
 COPY migrations ./migrations
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \

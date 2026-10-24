@@ -1,15 +1,18 @@
-import { useState } from 'react'
-import { ArrowRight, Check, Eye, EyeOff, Globe2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, Globe2 } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useLanguage } from '../lib/language'
 import Logo from '../components/Logo'
 
 export default function AuthPage() {
-  const [mode, setMode] = useState('signup'); const [show, setShow] = useState(false); const [loading,setLoading]=useState(false); const [error,setError]=useState('')
-  const { login, signup } = useAuth(); const { lang, setLang } = useLanguage(); const ar = lang === 'ar'
+  const [params]=useSearchParams(); const navigate=useNavigate(); const initial=params.get('tab')==='login'?'login':'signup'
+  const [mode, setMode] = useState(initial); const [show, setShow] = useState(false); const [loading,setLoading]=useState(false); const [error,setError]=useState('')
+  const { login, signup, chooseOnline } = useAuth(); const { lang, setLang } = useLanguage(); const ar = lang === 'ar'
+  useEffect(()=>{chooseOnline()},[])
   const submit = async e => {
     e.preventDefault(); setLoading(true); setError(''); const data = Object.fromEntries(new FormData(e.currentTarget))
-    try { await (mode === 'signup' ? signup(data) : login(data)) } catch (err) { setError(authError(err,mode,ar)) } finally { setLoading(false) }
+    try { await (mode === 'signup' ? signup(data) : login(data)); navigate('/dashboard',{replace:true}) } catch (err) { setError(authError(err,mode,ar)) } finally { setLoading(false) }
   }
   const changeMode=next=>{setMode(next);setError('')}
   return <div className="auth-page">
@@ -21,6 +24,7 @@ export default function AuthPage() {
       <p className="story-foot">بيروت • لبنان</p>
     </section>
     <section className="auth-form-wrap">
+      <button className="auth-back" onClick={()=>navigate('/')}><ArrowLeft size={17}/>{ar?'الخيارات':'All options'}</button>
       <button className="auth-lang" onClick={()=>setLang(ar?'en':'ar')}><Globe2 size={17}/>{ar?'English':'العربية'}</button>
       <div className="auth-form-card">
         <div className="mobile-logo"><Logo /></div>
