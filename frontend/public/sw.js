@@ -1,5 +1,5 @@
-const CACHE='levant-score-local-v3'
-const SHELL=['/','/index.html','/manifest.webmanifest','/favicon.svg','/game_rules.wasm']
+const CACHE='levant-score-local-v4'
+const SHELL=['/','/index.html','/manifest.webmanifest','/favicon.svg','/game_rules.wasm?v=2']
 
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()))
@@ -16,7 +16,7 @@ self.addEventListener('fetch',event=>{
     return
   }
   if(new URL(event.request.url).pathname==='/game_rules.wasm'){
-    event.respondWith(fetch(event.request).then(response=>{if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy))}return response}).catch(()=>caches.match(event.request)))
+    event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy))}return response})))
     return
   }
   event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy))}return response})))

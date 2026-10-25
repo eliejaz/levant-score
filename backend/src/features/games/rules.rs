@@ -10,11 +10,14 @@ use uuid::Uuid;
 pub struct Evaluation {
     pub entries: Vec<(DbPlayer, i32)>,
     pub finished: bool,
+    pub outcome: Option<levant_score_rules::GameOutcome>,
 }
 
 pub fn evaluate(game: &GameData, request: &AddRoundRequest) -> ApiResult<Evaluation> {
     let state = EngineGame {
         preset_code: game.game.preset_code.clone(),
+        team_mode: game.game.team_mode,
+        score_direction: game.game.score_direction.clone(),
         score_mode: game.game.score_mode.clone(),
         target_score: game.game.target_score,
         threshold_rule: game.game.threshold_rule.clone(),
@@ -80,5 +83,6 @@ pub fn evaluate(game: &GameData, request: &AddRoundRequest) -> ApiResult<Evaluat
     Ok(Evaluation {
         entries,
         finished: result.finished,
+        outcome: result.outcome,
     })
 }

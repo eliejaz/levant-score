@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+mod presets_json;
+pub use presets_json::PRESETS_JSON;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameState {
     pub preset_code: String,
+    pub team_mode: bool,
+    pub score_direction: String,
     pub score_mode: String,
     pub target_score: Option<i32>,
     pub threshold_rule: String,
@@ -65,6 +70,16 @@ pub struct ScoreDelta {
 pub struct RoundEvaluation {
     pub scores: Vec<ScoreDelta>,
     pub finished: bool,
+    pub outcome: Option<GameOutcome>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GameOutcome {
+    pub reason: String,
+    pub winner_player_ids: Vec<String>,
+    pub loser_player_ids: Vec<String>,
+    pub trigger_player_id: Option<String>,
 }
 
 pub fn evaluate_round(game: &GameState, request: &RoundRequest) -> Result<RoundEvaluation, String> {
@@ -128,11 +143,11 @@ pub fn evaluate_round(game: &GameState, request: &RoundRequest) -> Result<RoundE
             player.total_score += delta.points;
         }
     }
-    let slam =
-        game.preset_code == "400" && request.scores.iter().any(|score| score.bid == Some(13));
+    let outcome = determine_outcome(&proposed, request);
     Ok(RoundEvaluation {
         scores,
-        finished: slam || game_ended(&proposed),
+        finished: outcome.is_some(),
+        outcome,
     })
 }
 
@@ -470,18 +485,50 @@ fn validate_belote(request: &RoundRequest) -> Result<(), String> {
     )
 }
 
-fn game_ended(game: &GameState) -> bool {
+fn determine_outcome(game: &GameState, request: &RoundRequest) -> Option<GameOutcome> {
+    if game.preset_code == "400" {
+        if let Some(input) = request.scores.iter().find(|score| score.bid == Some(13)) {
+            let player = game
+                .players
+                .iter()
+                .find(|player| input.player_id.as_deref() == Some(player.id.as_str()))?;
+            let made = input.made == Some(true);
+            let winning_team = if made {
+                player.team_number
+            } else {
+                game.players
+                    .iter()
+                    .find(|candidate| candidate.team_number != player.team_number)
+                    .and_then(|candidate| candidate.team_number)
+            };
+            return Some(outcome_for_team(
+                game,
+                if made {
+                    "400_SLAM_MADE"
+                } else {
+                    "400_SLAM_MISSED"
+                },
+                winning_team,
+                Some(&player.id),
+            ));
+        }
+    }
+
     if game
         .round_limit
         .is_some_and(|limit| game.round_count >= limit)
     {
-        return true;
+        let standings = standing_values(game);
+        let winner = if game.score_direction == "LOW_WINS" {
+            standings.iter().min_by_key(|standing| standing.total)
+        } else {
+            standings.iter().max_by_key(|standing| standing.total)
+        }?;
+        return Some(outcome_for_standing(game, "ROUND_LIMIT", winner, None));
     }
-    let Some(target) = game.target_score else {
-        return false;
-    };
+    let target = game.target_score?;
     if game.threshold_rule == "NONE" || game.round_count == 0 {
-        return false;
+        return None;
     }
     let current = standing_values(game);
     if game.threshold_rule == "PLAYER_WIN_WITH_PARTNER_POSITIVE" {
@@ -502,15 +549,112 @@ fn game_ended(game: &GameState) -> bool {
                 .map(|(_, team)| team)
                 .collect();
             if teams.len() == 1 {
-                return true;
+                return Some(outcome_for_team(
+                    game,
+                    "PLAYER_WITH_POSITIVE_PARTNER",
+                    teams.into_iter().next(),
+                    None,
+                ));
             }
             if teams.len() < 2 {
-                return false;
+                return None;
             }
             threshold += 10;
         }
     }
-    current.iter().any(|standing| standing.total >= target)
+    if game.threshold_rule == "LOSE_AT_OR_ABOVE" {
+        let loser = current
+            .iter()
+            .filter(|standing| standing.total >= target)
+            .max_by_key(|standing| standing.total)?;
+        if game.team_mode {
+            let winning_team = game
+                .players
+                .iter()
+                .find(|player| player.team_number != loser.team_number)
+                .and_then(|player| player.team_number);
+            return Some(outcome_for_team(
+                game,
+                "LOSE_AT_OR_ABOVE",
+                winning_team,
+                Some(loser.key),
+            ));
+        }
+        let winner = current.iter().min_by_key(|standing| standing.total)?;
+        return Some(GameOutcome {
+            reason: "LOSE_AT_OR_ABOVE".into(),
+            winner_player_ids: player_ids_for_standing(game, winner),
+            loser_player_ids: player_ids_for_standing(game, loser),
+            trigger_player_id: Some(loser.key.to_owned()),
+        });
+    }
+    let winner = current
+        .iter()
+        .filter(|standing| standing.total >= target)
+        .max_by_key(|standing| standing.total)?;
+    Some(outcome_for_standing(
+        game,
+        "WIN_AT_OR_ABOVE",
+        winner,
+        Some(winner.key),
+    ))
+}
+
+fn outcome_for_standing(
+    game: &GameState,
+    reason: &str,
+    winner: &StandingValue<'_>,
+    trigger: Option<&str>,
+) -> GameOutcome {
+    let winner_ids = player_ids_for_standing(game, winner);
+    GameOutcome {
+        reason: reason.into(),
+        winner_player_ids: winner_ids.clone(),
+        loser_player_ids: game
+            .players
+            .iter()
+            .filter(|player| !winner_ids.contains(&player.id))
+            .map(|player| player.id.clone())
+            .collect(),
+        trigger_player_id: trigger.map(str::to_owned),
+    }
+}
+
+fn outcome_for_team(
+    game: &GameState,
+    reason: &str,
+    winning_team: Option<i32>,
+    trigger: Option<&str>,
+) -> GameOutcome {
+    let winner_player_ids = game
+        .players
+        .iter()
+        .filter(|player| player.team_number == winning_team)
+        .map(|player| player.id.clone())
+        .collect::<Vec<_>>();
+    GameOutcome {
+        reason: reason.into(),
+        loser_player_ids: game
+            .players
+            .iter()
+            .filter(|player| !winner_player_ids.contains(&player.id))
+            .map(|player| player.id.clone())
+            .collect(),
+        winner_player_ids,
+        trigger_player_id: trigger.map(str::to_owned),
+    }
+}
+
+fn player_ids_for_standing(game: &GameState, standing: &StandingValue<'_>) -> Vec<String> {
+    if game.score_mode == "TEAM" {
+        game.players
+            .iter()
+            .filter(|player| player.team_number == standing.team_number)
+            .map(|player| player.id.clone())
+            .collect()
+    } else {
+        vec![standing.key.to_owned()]
+    }
 }
 
 struct StandingValue<'a> {
@@ -599,7 +743,7 @@ mod wasm {
 
     #[no_mangle]
     pub extern "C" fn engine_version() -> u32 {
-        1
+        2
     }
 
     #[no_mangle]
@@ -640,6 +784,13 @@ mod wasm {
         let output = serde_json::to_vec(&response)
             .unwrap_or_else(|_| br#"{"ok":false,"error":"Rules serialization failed"}"#.to_vec())
             .into_boxed_slice();
+        RESULT_LEN.store(output.len(), Ordering::Release);
+        Box::into_raw(output) as *mut u8
+    }
+
+    #[no_mangle]
+    pub extern "C" fn presets_json() -> *mut u8 {
+        let output = PRESETS_JSON.as_bytes().to_vec().into_boxed_slice();
         RESULT_LEN.store(output.len(), Ordering::Release);
         Box::into_raw(output) as *mut u8
     }
@@ -735,6 +886,25 @@ mod tests {
         let result = evaluate_round(&game, &request).unwrap();
         assert_eq!(result.scores[0].points, 5);
         assert!(result.finished);
+    }
+
+    #[test]
+    fn four_hundred_outcome_uses_partner_rule_instead_of_individual_leader() {
+        let mut game = sample(
+            "400",
+            "INDIVIDUAL",
+            "PLAYER_WIN_WITH_PARTNER_POSITIVE",
+            Some(41),
+            None,
+        );
+        game.round_count = 3;
+        game.players[0].total_score = 50;
+        game.players[2].total_score = -5;
+        game.players[1].total_score = 41;
+        game.players[3].total_score = 1;
+        let outcome = determine_outcome(&game, &RoundRequest::default()).unwrap();
+        assert_eq!(outcome.reason, "PLAYER_WITH_POSITIVE_PARTNER");
+        assert_eq!(outcome.winner_player_ids, vec!["p1", "p3"]);
     }
 
     #[test]
@@ -838,6 +1008,12 @@ mod tests {
     ) -> GameState {
         GameState {
             preset_code: code.into(),
+            team_mode: matches!(code, "leekha-team" | "400" | "tarneeb" | "basra" | "belote"),
+            score_direction: if matches!(code, "leekha-solo" | "leekha-team" | "hand") {
+                "LOW_WINS".into()
+            } else {
+                "HIGH_WINS".into()
+            },
             score_mode: mode.into(),
             target_score: target,
             threshold_rule: threshold.into(),

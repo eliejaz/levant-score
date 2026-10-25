@@ -93,16 +93,18 @@ impl ScoreMode {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
-    pub code: &'static str,
-    pub name: &'static str,
-    pub name_ar: &'static str,
-    pub description: &'static str,
-    pub description_ar: &'static str,
+    pub code: String,
+    pub name: String,
+    pub name_ar: String,
+    pub description: String,
+    pub description_ar: String,
     pub team_mode: bool,
+    #[serde(default)]
     pub min_players: i32,
+    #[serde(default)]
     pub max_players: i32,
     pub allowed_player_counts: Vec<i32>,
     pub direction: ScoreDirection,
@@ -110,7 +112,7 @@ pub struct Preset {
     pub threshold_rule: ThresholdRule,
     pub score_mode: ScoreMode,
     pub round_limit: Option<i32>,
-    pub rule: &'static str,
-    pub rule_ar: &'static str,
-    pub accent: &'static str,
+    pub rule: String,
+    pub rule_ar: String,
+    pub accent: String,
 }

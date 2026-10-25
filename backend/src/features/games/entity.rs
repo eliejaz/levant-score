@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::domain::{ScoreDirection, ScoreMode, Status, ThresholdRule};
 
-#[derive(Clone, Debug, FromRow)]
+#[derive(Clone, Debug, Deserialize, FromRow)]
 pub struct DbGame {
     pub id: Uuid,
     pub title: String,
@@ -18,21 +19,21 @@ pub struct DbGame {
     pub round_limit: Option<i32>,
     pub round_count: i32,
     pub status: String,
+    pub outcome_data: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, FromRow)]
+#[derive(Clone, Debug, Deserialize, FromRow)]
 pub struct DbPlayer {
     pub id: Uuid,
-    pub game_id: Uuid,
     pub name: String,
     pub team_number: Option<i32>,
     pub seat_order: i32,
     pub total_score: i32,
 }
 
-#[derive(Clone, Debug, FromRow)]
+#[derive(Clone, Debug, Deserialize, FromRow)]
 pub struct DbRound {
     pub id: Uuid,
     pub round_number: i32,

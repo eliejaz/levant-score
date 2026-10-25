@@ -5,6 +5,7 @@ import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
 import { evaluateRound } from '../lib/rulesEngine'
+import { calculateStandings } from '../lib/standings'
 import { useLanguage } from '../lib/language'
 
 const HISTORY_PAGE_SIZE=20
@@ -24,7 +25,7 @@ export default function Scoreboard() {
     let rounds=current.rounds
     if(kind==='add'&&mutation.round) rounds=[mutation.round,...rounds].slice(0,HISTORY_PAGE_SIZE)
     if(kind==='undo'&&mutation.removedRoundId) rounds=rounds.filter(round=>round.id!==mutation.removedRoundId)
-    return {...current,status:mutation.status,standings:mutation.standings,roundCount:mutation.roundCount,updatedAt:mutation.updatedAt,rounds,hasMoreRounds:mutation.roundCount>rounds.length}
+    return {...current,status:mutation.status,standings:mutation.standings,outcome:mutation.outcome??null,roundCount:mutation.roundCount,updatedAt:mutation.updatedAt,rounds,hasMoreRounds:mutation.roundCount>rounds.length}
   })
   const action=async(fn,kind)=>{setBusy(true);setError('');try{const mutation=await fn();applyMutation(mutation,kind);return true}catch(e){setError(e.message);return false}finally{setBusy(false)}}
   const openAddRound=()=>{setEditingRound(null);setModal(true)}
@@ -38,26 +39,18 @@ export default function Scoreboard() {
   if(!game)return <Shell compact><div className="page-container"><button className="text-back" onClick={()=>nav('/dashboard')}><ArrowLeft size={18}/>{t.back}</button>{error?<div className="empty-state">{error}</div>:<Loading/>}</div></Shell>
 
   const leader=game.standings[0]; const hasRounds=game.roundCount>0
-  const thresholdLoser=game.thresholdRule==='LOSE_AT_OR_ABOVE'&&game.targetScore!=null
-    ? game.standings.filter(s=>s.total>=game.targetScore).sort((a,b)=>b.total-a.total)[0] : null
-  const winningThresholdReached=(game.thresholdRule==='WIN_AT_OR_ABOVE'||game.thresholdRule==='PLAYER_WIN_WITH_PARTNER_POSITIVE')&&game.targetScore!=null&&game.standings.some(s=>s.total>=game.targetScore)
-  const roundsFinished=game.roundLimit!=null&&game.roundCount>=game.roundLimit
-  const slamScore=game.presetCode==='400'&&game.status==='FINISHED'?game.rounds[0]?.scores.find(s=>Math.abs(s.points)===41):null
-  const slamPlayer=slamScore?game.players.find(p=>p.id===slamScore.key):null
-  const slamWinningTeam=slamPlayer?(slamScore.points>0?slamPlayer.teamNumber:game.players.find(p=>p.teamNumber!==slamPlayer.teamNumber)?.teamNumber):null
-  const automaticResult=game.status==='FINISHED'&&(thresholdLoser||winningThresholdReached||roundsFinished||slamScore)
-  const winnerName=slamWinningTeam
-    ? teamName(game,slamWinningTeam)
-    : thresholdLoser&&game.teamMode
-    ? teamName(game,game.players.find(p=>p.teamNumber!==thresholdLoser.teamNumber)?.teamNumber)
-    : game.teamMode&&game.scoreMode==='INDIVIDUAL'&&leader?.teamNumber
-      ? teamName(game,leader.teamNumber) : leader?.name
+  const outcome=game.outcome
+  const triggerPlayer=outcome?.triggerPlayerId?game.players.find(player=>player.id===outcome.triggerPlayerId):null
+  const thresholdLoser=outcome?.reason==='LOSE_AT_OR_ABOVE'&&triggerPlayer
+    ? game.standings.find(standing=>standing.playerIds?.includes(triggerPlayer.id)) : null
+  const automaticResult=game.status==='FINISHED'&&Boolean(outcome)
+  const winnerName=outcome?namesForPlayers(game,outcome.winnerPlayerIds):leader?.name
   const dangerScore=thresholdLoser?.total??game.standings[game.standings.length-1]?.total??0
 
   return <Shell compact><div className="scoreboard">
     <section className="score-hero"><div className="page-container"><button className="hero-back" onClick={()=>nav('/dashboard')}><ArrowLeft size={18}/>{t.home}</button><div className="score-title-row"><div><div className="game-meta"><span className={`status-pill ${game.status.toLowerCase()}`}>{game.status==='ACTIVE'?t.live:t.finished}</span><span>{game.presetName}</span><span>•</span><span>{game.roundCount}{game.roundLimit?` / ${game.roundLimit}`:''} {t.rounds}</span></div><h1>{game.title}</h1></div><div className="score-actions">{game.status==='FINISHED'&&<button className="hero-secondary rematch-button" onClick={rematch} disabled={busy}><RefreshCw size={17}/>{t.playAgain}</button>}{hasRounds&&game.status==='ACTIVE'&&<button className="hero-secondary" onClick={undo} disabled={busy}><RotateCcw size={17}/>{t.undo}</button>}<button className="hero-secondary" onClick={toggleStatus} disabled={busy}><Flag size={17}/>{game.status==='ACTIVE'?t.finish:t.reopen}</button><button className="hero-secondary delete-game-button" onClick={()=>setDeleteOpen(true)} disabled={busy} title={t.deleteGame} aria-label={t.deleteGame}><Trash2 size={17}/><span>{t.deleteGame}</span></button></div></div>
       {leader&&hasRounds&&(automaticResult
-        ? <div className="leader-banner game-over-banner"><div className="leader-crown"><Trophy size={24}/></div><div><small>{t.gameOver}</small><strong>{winnerName} {t.wins}</strong></div>{slamScore?<div className="result-reason">{slamScore.name} {slamScore.points>0?(ar?'نجح بطلب ١٣':'made bid 13'):(ar?'خسر طلب ١٣':'missed bid 13')}</div>:thresholdLoser&&<div className="result-reason">{thresholdLoser.name} {t.reached} {game.targetScore}</div>}{roundsFinished&&!slamScore&&<div className="result-reason">{game.roundCount} / {game.roundLimit} {t.rounds}</div>}</div>
+        ? <div className="leader-banner game-over-banner"><div className="leader-crown"><Trophy size={24}/></div><div><small>{t.gameOver}</small><strong>{winnerName} {t.wins}</strong></div>{outcome.reason.startsWith('400_SLAM')?<div className="result-reason">{triggerPlayer?.name} {outcome.reason==='400_SLAM_MADE'?(ar?'نجح بطلب ١٣':'made bid 13'):(ar?'خسر طلب ١٣':'missed bid 13')}</div>:thresholdLoser?<div className="result-reason">{thresholdLoser.name} {t.reached} {game.targetScore}</div>:outcome.reason==='ROUND_LIMIT'&&<div className="result-reason">{game.roundCount} / {game.roundLimit} {t.rounds}</div>}</div>
         : <div className="leader-banner"><div className="leader-crown"><Crown size={24}/></div><div><small>{t.leading}</small><strong>{leader.name}</strong></div><div className="leader-score"><b>{leader.total}</b><span>{t.points}</span></div>{game.targetScore!=null&&<div className="target-progress"><span>{game.thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:t.targetLabel} {game.targetScore}</span><div><i style={{width:`${Math.min(100,Math.abs((game.thresholdRule==='LOSE_AT_OR_ABOVE'?dangerScore:leader.total)/game.targetScore*100))}%`}}/></div></div>}</div>)}
       </div></section>
     <div className="page-container score-content"><section className="standings-section"><div className="section-label"><span className="eyebrow green">{ar?'الترتيب':'STANDINGS'}</span><p>{game.scoreDirection==='HIGH_WINS'?t.highWins:t.lowWins}</p></div><div className="standings-grid">{game.standings.map((s,i)=><div className={`standing-card ${i===0&&hasRounds?'first':''} ${thresholdLoser?.key===s.key?'limit-reached':''}`} key={s.key}><div className="rank">{hasRounds&&i===0?<Trophy size={18}/>:i+1}</div><div className="standing-avatar">{s.name.slice(0,1).toUpperCase()}</div><div className="standing-name"><strong>{s.name}</strong>{game.teamMode&&<small>{ar?`فريق ${s.teamNumber}`:`Team ${s.teamNumber}`}</small>}</div><div className="standing-total"><b>{s.total}</b><small>{t.points}</small></div></div>)}</div>
@@ -82,7 +75,7 @@ function RoundModal({game,round,t,ar,onClose,onSave,busy}) {
   const [entries,setEntries]=useState(Object.fromEntries(participants.map(p=>[p.key,{...initialEntry(p),...savedEntry(p)}])))
   const [note,setNote]=useState(initialRequest?.note||''); const [ruleCode,setRuleCode]=useState(initialRequest?.ruleCode||(game.presetCode==='trex-complex'?'COMPLEX':'KING'))
   const [bidderTeam,setBidderTeam]=useState(initialRequest?.bidderTeam??participants[0]?.teamNumber??1); const [contractBid,setContractBid]=useState(initialRequest?.bid??7); const [contractTricks,setContractTricks]=useState(initialRequest?.tricks??7)
-  const [validation,setValidation]=useState({ok:false,error:null})
+  const [validation,setValidation]=useState({ok:false,error:null,result:null})
   const field=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value===''?'':Number(value)}})
   const toggle=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value}})
   const scoreInputs=participants.map(p=>({
@@ -91,23 +84,23 @@ function RoundModal({game,round,t,ar,onClose,onSave,busy}) {
   }))
   const roundRequest={note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),scores:scoreInputs}
   const requestKey=JSON.stringify(roundRequest)
-  useEffect(()=>{let active=true;setValidation({ok:false,error:null});evaluateRound(scoringGame,roundRequest).then(()=>{if(active)setValidation({ok:true,error:null})}).catch(error=>{if(active)setValidation({ok:false,error:error.message})});return()=>{active=false}},[scoringGame,requestKey])
+  useEffect(()=>{let active=true;setValidation({ok:false,error:null,result:null});evaluateRound(scoringGame,roundRequest).then(result=>{if(active)setValidation({ok:true,error:null,result})}).catch(error=>{if(active)setValidation({ok:false,error:error.message,result:null})});return()=>{active=false}},[scoringGame,requestKey])
   const submit=e=>{e.preventDefault();if(validation.ok)onSave(roundRequest)}
   const helper=roundHelper(scoringGame,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks},ar)
   return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="round-modal"><div className="modal-head"><div><span className="eyebrow green">{t.round} {round?.roundNumber??game.roundCount+1}{game.roundLimit?` / ${game.roundLimit}`:''}</span><h2>{round?(ar?'تعديل التوزيعة':'Edit hand'):roundTitle(game,ar)}</h2></div><button onClick={onClose}><X size={22}/></button></div><form onSubmit={submit}>
     <div className={`rule-helper ${validation.ok?'ready':'waiting'}`}><strong>{helper.title}</strong><span>{helper.text}</span>{validation.error&&<small>{validation.error}</small>}</div>
     {(game.presetCode==='trex'||game.presetCode==='trex-complex')&&<label className="contract-picker">{ar?'العقد':'Contract'}<select value={ruleCode} onChange={e=>setRuleCode(e.target.value)}>{trexContracts(game.presetCode,ar).map(c=><option key={c.code} value={c.code} disabled={game.rounds.filter(r=>r.id!==round?.id&&r.ruleCode===c.code).length>=4}>{c.label}</option>)}</select></label>}
     {game.presetCode==='tarneeb'&&<div className="contract-grid"><label>{ar?'الفريق الطالب':'Bidder team'}<select value={bidderTeam} onChange={e=>setBidderTeam(Number(e.target.value))}>{participants.map(p=><option key={p.key} value={p.teamNumber}>{p.name}</option>)}</select></label><label>{ar?'الطلب':'Bid'}<input type="number" min="7" max="13" value={contractBid} onChange={e=>setContractBid(Number(e.target.value))}/></label><label>{ar?'الأكلات المأخوذة':'Tricks won'}<input type="number" min="0" max="13" value={contractTricks} onChange={e=>setContractTricks(Number(e.target.value))}/></label></div>}
-    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={scoringGame} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks}/>)}</div>
+    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={scoringGame} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks} preview={validation.result?.scores.find(score=>p.playerIds.includes(score.playerId))}/>)}</div>
     <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!validation.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{round?(ar?'حفظ التعديل':'Save changes'):t.saveRound}</>}</button></div>
   </form></div></div>
 }
 
-function RuleEntry({game,participant:p,index,entry,entries,ruleCode,ar,field,toggle,bidderTeam,contractBid,contractTricks}) {
+function RuleEntry({game,participant:p,index,entry,entries,ruleCode,ar,field,toggle,bidderTeam,contractBid,contractTricks,preview}) {
   const id=p.key; const preset=game.presetCode
   let controls
-  if(preset==='400') controls=<><label className="compact-input">{ar?'الطلب':'Bid'}<input type="number" min={min400Bid(game,p)} max="13" value={entry.bid} onChange={e=>field(id,'bid',e.target.value)}/></label><div className="made-toggle"><button type="button" className={entry.made?'active':''} onClick={()=>toggle(id,'made',true)}>✓ {ar?'أخذ':'Made'}</button><button type="button" className={!entry.made?'missed':''} onClick={()=>toggle(id,'made',false)}>− {ar?'كسر':'Missed'}</button></div><b className={`score-preview ${entry.made?'':'negative'}`}>{entry.made?'+':'−'}{fourHundredValue(entry.bid,standingTotal(game,p))}</b></>
-  else if(preset==='tarneeb') { const score=p.teamNumber===Number(bidderTeam)?(contractTricks>=contractBid?contractTricks:-contractBid):(contractTricks>=contractBid?0:13-contractTricks); controls=<b className={`score-preview ${score<0?'negative':''}`}>{score>0?'+':''}{score}</b> }
+  if(preset==='400') { const score=preview?.points??fourHundredPreview(entry.bid,entry.made,standingTotal(game,p)); controls=<><label className="compact-input">{ar?'الطلب':'Bid'}<input type="number" min={min400Bid(game,p)} max="13" value={entry.bid} onChange={e=>field(id,'bid',e.target.value)}/></label><div className="made-toggle"><button type="button" className={entry.made?'active':''} onClick={()=>toggle(id,'made',true)}>✓ {ar?'أخذ':'Made'}</button><button type="button" className={!entry.made?'missed':''} onClick={()=>toggle(id,'made',false)}>− {ar?'كسر':'Missed'}</button></div><b className={`score-preview ${score<0?'negative':''}`}>{score>0?'+':''}{score}</b></> }
+  else if(preset==='tarneeb') { const score=preview?.points??tarneebPreview(p.teamNumber,bidderTeam,contractBid,contractTricks); controls=<b className={`score-preview ${score<0?'negative':''}`}>{score>0?'+':''}{score}</b> }
   else if(preset==='trex'||preset==='trex-complex') controls=<TrexControls id={id} entry={entry} ruleCode={ruleCode} ar={ar} field={field}/>
   else if(preset==='basra') controls=<><label className="compact-input">{ar?'نقاط الورق':'Card pts'}<input type="number" min="0" max="13" value={entry.cardPoints} onChange={e=>field(id,'cardPoints',e.target.value)}/></label><label className="compact-input">{ar?'باصرة':'Basras'}<input type="number" min="0" value={entry.basras} onChange={e=>field(id,'basras',e.target.value)}/></label><button type="button" className={`majority-button ${entry.majority?'active':''}`} onClick={()=>toggle(id,'majority',!entry.majority)}>+3 {ar?'أكثر ورق':'Most cards'}</button></>
   else if(preset==='belote') controls=<><label className="compact-input">{ar?'نقاط الورق':'Card pts'}<input type="number" min="0" max="162" value={entry.cardPoints} onChange={e=>field(id,'cardPoints',e.target.value)}/></label><label className="compact-input">{ar?'إعلانات':'Bonuses'}<input type="number" min="0" max="500" value={entry.bonusPoints} onChange={e=>field(id,'bonusPoints',e.target.value)}/></label></>
@@ -159,18 +152,14 @@ function gameBeforeRound(game,round){
   base.roundCount=round.roundNumber-1
   base.rounds=base.rounds.filter(item=>item.roundNumber<round.roundNumber)
   base.status='ACTIVE'
-  base.standings=standingsFromPlayers(base)
+  base.standings=calculateStandings(base)
   return base
-}
-function standingsFromPlayers(game){
-  const groups=new Map()
-  for(const player of game.players){const key=game.scoreMode==='TEAM'?`team-${player.teamNumber}`:player.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(player)}
-  return [...groups].map(([key,members])=>({key,name:members.map(item=>item.name).join(' & '),playerIds:members.map(item=>item.id),teamNumber:members[0].teamNumber,total:members.reduce((sum,item)=>sum+item.totalScore,0)})).sort((a,b)=>game.scoreDirection==='HIGH_WINS'?b.total-a.total:a.total-b.total)
 }
 const standingTotal=(game,p)=>{const player=game.players.find(item=>item.id===p.playerIds[0]);return Number.isFinite(player?.totalScore)?player.totalScore:game.standings.find(s=>s.playerIds?.includes(p.playerIds[0]))?.total||0}
 const min400Bid=(game,p)=>{const total=standingTotal(game,p);return total>=50?5:total>=40?4:total>=30?3:2}
-const fourHundredValue=(bid,total)=>Number(bid)===13?41:Number(bid)>=5&&Number(bid)<=6&&total>=30?Number(bid):({2:2,3:3,4:4,5:10,6:12,7:14,8:16,9:27,10:30,11:33,12:36}[Number(bid)]||0)
+const fourHundredPreview=(bid,made,total)=>{const value=Number(bid)===13?41:Number(bid)>=5&&Number(bid)<=6&&total>=30?Number(bid):({2:2,3:3,4:4,5:10,6:12,7:14,8:16,9:27,10:30,11:33,12:36}[Number(bid)]||0);return made?value:-value}
+const tarneebPreview=(team,bidder,bid,tricks)=>Number(team)===Number(bidder)?(tricks>=bid?tricks:-bid):(tricks>=bid?0:13-tricks)
 const trexContracts=(preset,ar)=>preset==='trex-complex'?[{code:'COMPLEX',label:ar?'كومبلكس':'Complex'},{code:'TREX',label:ar?'تركس':'Trex'}]:[{code:'KING',label:ar?'ملك القلوب':'King of Hearts'},{code:'QUEENS',label:ar?'البنات':'Queens'},{code:'DIAMONDS',label:ar?'الديناري':'Diamonds'},{code:'COLLECTIONS',label:ar?'الأكلات':'Collections'},{code:'TREX',label:ar?'تركس':'Trex'}]
 
-const teamName=(game,teamNumber)=>game.players.filter(p=>p.teamNumber===teamNumber).map(p=>p.name).join(' & ')
+const namesForPlayers=(game,ids=[])=>game.players.filter(player=>ids.includes(player.id)).map(player=>player.name).join(' & ')
 const initials=name=>name.split(/\s|&/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()

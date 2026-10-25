@@ -131,6 +131,7 @@ pub struct GameSummary {
     pub round_limit: Option<i32>,
     pub round_count: i32,
     pub standings: Vec<StandingView>,
+    pub outcome: Option<levant_score_rules::GameOutcome>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -153,6 +154,7 @@ pub struct GameView {
     pub has_more_rounds: bool,
     pub players: Vec<PlayerView>,
     pub standings: Vec<StandingView>,
+    pub outcome: Option<levant_score_rules::GameOutcome>,
     pub rounds: Vec<RoundView>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -189,6 +191,7 @@ pub struct RoundPage {
 pub struct GameMutation {
     pub status: Status,
     pub standings: Vec<StandingView>,
+    pub outcome: Option<levant_score_rules::GameOutcome>,
     pub round_count: i32,
     pub updated_at: DateTime<Utc>,
     pub round: Option<RoundView>,

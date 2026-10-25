@@ -30,6 +30,25 @@ test('400 uses bid values and made or missed signs',async()=>{
   assert.deepEqual(result.standings.map(item=>item.total),[10,2,2,-2])
 })
 
+test('400 outcome chooses the qualifying partnership, not the individual leader',async()=>{
+  const game=await games.createGame(createRequest('400'))
+  const backup=JSON.parse(games.exportData())
+  backup.currentGame.players[0].totalScore=45
+  backup.currentGame.players[1].totalScore=36
+  backup.currentGame.players[2].totalScore=-10
+  backup.currentGame.players[3].totalScore=1
+  games.importData(JSON.stringify(backup))
+  const result=await games.addRound(game.id,{scores:[
+    {playerId:game.players[0].id,bid:4,made:true},
+    {playerId:game.players[1].id,bid:5,made:true},
+    {playerId:game.players[2].id,bid:2,made:false},
+    {playerId:game.players[3].id,bid:2,made:true},
+  ]})
+  assert.equal(result.status,'FINISHED')
+  assert.equal(result.outcome.reason,'PLAYER_WITH_POSITIVE_PARTNER')
+  assert.deepEqual(result.outcome.winnerPlayerIds,[game.players[1].id,game.players[3].id])
+})
+
 test('Tarneeb applies one team score per deal',async()=>{
   const game=await games.createGame(createRequest('tarneeb'))
   const result=await games.addRound(game.id,{bidderTeam:1,bid:8,tricks:6,scores:[{teamNumber:1},{teamNumber:2}]})

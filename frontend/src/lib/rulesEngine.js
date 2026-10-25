@@ -1,25 +1,39 @@
-const ENGINE_VERSION=1
+const ENGINE_VERSION=2
+const RULES_URL=`/game_rules.wasm?v=${ENGINE_VERSION}`
+const encoder=new TextEncoder()
+const decoder=new TextDecoder()
 let enginePromise
 
 export async function evaluateRound(game,request){
   const engine=await loadEngine()
-  const input=new TextEncoder().encode(JSON.stringify({game:engineGame(game),request:engineRequest(request)}))
+  const input=encoder.encode(JSON.stringify({game:engineGame(game),request:engineRequest(request)}))
   const pointer=engine.alloc(input.length)
   new Uint8Array(engine.memory.buffer,pointer,input.length).set(input)
   let resultPointer
   try{resultPointer=engine.evaluate_round_json(pointer,input.length)}finally{engine.dealloc(pointer,input.length)}
-  const resultLength=engine.result_len()
-  const resultBytes=new Uint8Array(engine.memory.buffer,resultPointer,resultLength).slice()
-  engine.result_dealloc(resultPointer,resultLength)
-  const response=JSON.parse(new TextDecoder().decode(resultBytes))
+  const response=JSON.parse(readResult(engine,resultPointer))
   if(!response.ok)throw new Error(response.error||'The game rules rejected this hand')
   return response.result
 }
 
+export async function getGamePresets(){
+  const engine=await loadEngine()
+  return JSON.parse(readResult(engine,engine.presets_json()))
+}
+
+function readResult(engine,pointer){
+  const length=engine.result_len()
+  const bytes=new Uint8Array(engine.memory.buffer,pointer,length).slice()
+  engine.result_dealloc(pointer,length)
+  return decoder.decode(bytes)
+}
+
 async function loadEngine(){
-  if(!enginePromise)enginePromise=fetch('/game_rules.wasm',{cache:'no-cache'}).then(async response=>{
+  if(!enginePromise)enginePromise=fetch(RULES_URL,{cache:'force-cache'}).then(async response=>{
     if(!response.ok)throw new Error('Could not load the game rules engine')
-    const {instance}=await WebAssembly.instantiate(await response.arrayBuffer(),{})
+    let instance
+    try{({instance}=await WebAssembly.instantiateStreaming(response.clone(),{}))}
+    catch{({instance}=await WebAssembly.instantiate(await response.arrayBuffer(),{}))}
     if(instance.exports.engine_version()!==ENGINE_VERSION)throw new Error('The game rules engine is out of date. Refresh the page.')
     return instance.exports
   }).catch(error=>{enginePromise=null;throw error})
@@ -29,6 +43,8 @@ async function loadEngine(){
 function engineGame(game){
   return {
     presetCode:game.presetCode,
+    teamMode:Boolean(game.teamMode),
+    scoreDirection:game.scoreDirection,
     scoreMode:game.scoreMode,
     targetScore:game.targetScore,
     thresholdRule:game.thresholdRule,

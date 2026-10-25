@@ -20,7 +20,7 @@ backend/
 │   ├── api/             HTTP router, middleware, and API errors
 │   ├── features/
 │   │   ├── auth/        Authentication handlers and contracts
-│   │   └── games/       Handlers, DTOs, domain rules, and DB entities
+│   │   └── games/       HTTP handlers, repository queries, DTOs, and DB entities
 │   └── infrastructure/  PostgreSQL connection and migrations
 ├── migrations/   Ordered SQLx database migrations
 ├── tests/        PostgreSQL API integration tests
@@ -47,7 +47,7 @@ One frontend deployment contains both modes. The home page explicitly offers sig
 
 The offline edition keeps at most one active game and the latest ten finished games. When an eleventh game is finished, the oldest history item is removed automatically. It also registers a service worker, so after the first successful load it can open without a network connection. Browser data is device- and browser-profile-specific and can be removed by clearing site data.
 
-`backend/game-rules` is the single authoritative implementation for scoring, round validation, and automatic game-ending rules. The API links it as a native Rust library. The frontend loads the compiled `frontend/public/game_rules.wasm`, so browser validation and offline scoring execute that exact same code rather than a JavaScript rewrite. JavaScript only adapts UI/storage data into the engine contract.
+`backend/game-rules` is the single authoritative implementation for presets, scoring, round validation, automatic game-ending rules, and structured winner outcomes. The API links it as a native Rust library. The frontend loads the compiled `frontend/public/game_rules.wasm`, so browser validation, offline scoring, and offline preset setup execute that exact same code rather than a JavaScript rewrite. JavaScript only adapts UI/storage data into the engine contract and renders localized helpers.
 
 For local development, use the normal `npm run dev` command and choose either mode on the home page. Run `npm run test:local` to execute the browser-storage tests against the real WebAssembly engine.
 
@@ -167,6 +167,8 @@ SQLx migrations run automatically when the backend starts and create or update t
 > **Cached-state migration:** migration `0003_cached_game_state.sql` clears existing games once, preserves user accounts, and adds transactionally maintained player totals and round counts. This keeps dashboard and score-entry queries constant-time as history grows.
 
 > **Editable-round migration:** migration `0004_editable_rounds.sql` adds the original validated hand input to newly saved rounds. It does not delete existing data, but rounds created before this migration cannot be edited; they can still be viewed or undone.
+
+> **Outcome migration:** migration `0005_game_outcomes.sql` stores the winner and end reason calculated by the shared rules engine and adds the dashboard's owner/status/date index. It preserves existing data; older finished games simply have no structured outcome.
 
 ### 2. Deploy the backend to Render
 

@@ -1,5 +1,5 @@
-import { gamePresets, getPreset } from './presets.js'
-import { evaluateRound } from './rulesEngine.js'
+import { evaluateRound, getGamePresets } from './rulesEngine.js'
+import { calculateStandings } from './standings.js'
 
 const STORAGE_KEY='levant-score:local:v2'
 const LEGACY_STORAGE_KEY='levant-score:local:v1'
@@ -8,7 +8,7 @@ const HISTORY_GAME_LIMIT=10
 const EMPTY_STATE={version:2,currentGame:null,historyGames:[]}
 
 export const localGameRepository={
-  async getPresets(){ return clone(gamePresets) },
+  async getPresets(){ return clone(await getGamePresets()) },
   async listGames({status='ACTIVE',page=1,size=6}={}){
     const state=readState()
     const games=[state.currentGame,...state.historyGames].filter(Boolean)
@@ -25,12 +25,13 @@ export const localGameRepository={
   async createGame(request){
     const state=readState()
     if(state.currentGame) throw conflict('Finish or delete the current game before starting another one.')
-    const preset=getPreset(request.presetCode)
+    const presets=await getGamePresets()
+    const preset=presets.find(item=>item.code===request.presetCode)||presets.at(-1)
     validateCreate(request,preset)
     const id=uuid(), now=new Date().toISOString()
     const teamMode=request.teamMode??preset.teamMode
     const players=request.players.map((player,index)=>({id:uuid(),name:player.name.trim(),teamNumber:teamMode?Number(player.teamNumber):null,seatOrder:index,totalScore:0}))
-    const game={id,title:request.title.trim(),presetCode:preset.code,presetName:preset.code==='custom'?(request.customPresetName?.trim()||preset.name):preset.name,teamMode,scoreDirection:request.scoreDirection??preset.direction,targetScore:nullableNumber(request.targetScore??preset.defaultTarget),thresholdRule:request.thresholdRule??preset.thresholdRule,scoreMode:request.scoreMode??preset.scoreMode,roundLimit:nullableNumber(request.roundLimit??preset.roundLimit),roundCount:0,status:'ACTIVE',players,rounds:[],createdAt:now,updatedAt:now}
+    const game={id,title:request.title.trim(),presetCode:preset.code,presetName:preset.code==='custom'?(request.customPresetName?.trim()||preset.name):preset.name,teamMode,scoreDirection:request.scoreDirection??preset.direction,targetScore:nullableNumber(request.targetScore??preset.defaultTarget),thresholdRule:request.thresholdRule??preset.thresholdRule,scoreMode:request.scoreMode??preset.scoreMode,roundLimit:nullableNumber(request.roundLimit??preset.roundLimit),roundCount:0,status:'ACTIVE',outcome:null,players,rounds:[],createdAt:now,updatedAt:now}
     state.currentGame=game
     writeState(state)
     return publicGame(game)
@@ -45,7 +46,7 @@ export const localGameRepository={
     const state=readState(), source=requireGame(state,id)
     if(state.currentGame&&state.currentGame.id!==id) throw conflict('Finish or delete the current game before starting a rematch.')
     const now=new Date().toISOString(), nextId=uuid()
-    const next={...clone(source),id:nextId,status:'ACTIVE',roundCount:0,rounds:[],players:source.players.map(player=>({...player,id:uuid(),totalScore:0})),createdAt:now,updatedAt:now}
+    const next={...clone(source),id:nextId,status:'ACTIVE',outcome:null,roundCount:0,rounds:[],players:source.players.map(player=>({...player,id:uuid(),totalScore:0})),createdAt:now,updatedAt:now}
     if(source.status==='FINISHED') addHistory(state,source)
     state.currentGame=next
     writeState(state)
@@ -64,6 +65,7 @@ export const localGameRepository={
     const round={id:roundId,roundNumber:game.roundCount,ruleCode:request.ruleCode||null,note:request.note?.trim()||null,createdAt:now,inputData:clone(request),scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas}
     game.rounds.unshift(round)
     game.status=evaluation.finished?'FINISHED':'ACTIVE'
+    game.outcome=evaluation.outcome??null
     game.updatedAt=now
     if(game.status==='FINISHED'){state.currentGame=null;addHistory(state,game)}else state.currentGame=game
     writeState(state)
@@ -74,10 +76,11 @@ export const localGameRepository={
     if(!request.scores?.length) throw bad('scores must not be empty')
     if((request.note?.length||0)>240) throw bad('note must be at most 240 characters')
     if(!source.rounds.some(round=>round.id===roundId)) throw notFound()
-    const originals=source.rounds.slice().sort((a,b)=>a.roundNumber-b.roundNumber)
+    const editedNumber=source.rounds.find(round=>round.id===roundId).roundNumber
+    const originals=source.rounds.filter(round=>round.roundNumber>=editedNumber).slice().sort((a,b)=>a.roundNumber-b.roundNumber)
     const game=clone(source)
-    game.players.forEach(player=>{player.totalScore=0})
-    game.rounds=[];game.roundCount=0;game.status='ACTIVE'
+    for(const original of originals)for(const delta of original._deltas||[])game.players.find(player=>player.id===delta.playerId).totalScore-=delta.points
+    game.rounds=game.rounds.filter(round=>round.roundNumber<editedNumber);game.roundCount=editedNumber-1;game.status='ACTIVE';game.outcome=null
     for(let index=0;index<originals.length;index+=1){
       const original=originals[index]
       const input=original.id===roundId?clone(request):clone(original.inputData)
@@ -89,6 +92,7 @@ export const localGameRepository={
       game.roundCount+=1
       game.rounds.unshift({id:original.id,roundNumber:original.roundNumber,ruleCode:input.ruleCode||null,note:input.note?.trim()||null,createdAt:original.createdAt,inputData:clone(input),scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas})
       game.status=evaluation.finished?'FINISHED':'ACTIVE'
+      game.outcome=evaluation.outcome??null
     }
     if(game.status==='ACTIVE'&&state.currentGame&&state.currentGame.id!==id)throw conflict('Finish or delete the current game before reopening this one.')
     game.updatedAt=new Date().toISOString()
@@ -100,7 +104,7 @@ export const localGameRepository={
     const state=readState(), game=requireGame(state,id), round=game.rounds[0]
     if(!round) throw conflict('There is no round to undo')
     for(const delta of round._deltas||[]) game.players.find(player=>player.id===delta.playerId).totalScore-=delta.points
-    game.rounds.shift(); game.roundCount=Math.max(0,game.roundCount-1); game.updatedAt=new Date().toISOString()
+    game.rounds.shift(); game.roundCount=Math.max(0,game.roundCount-1); game.status='ACTIVE'; game.outcome=null; game.updatedAt=new Date().toISOString()
     saveGameInSlot(state,game)
     writeState(state)
     return mutation(game,{removedRoundId:round.id})
@@ -109,7 +113,7 @@ export const localGameRepository={
     if(!['ACTIVE','FINISHED'].includes(status)) throw bad('Unknown game status')
     const state=readState(), game=requireGame(state,id)
     if(status==='ACTIVE'&&state.currentGame&&state.currentGame.id!==id) throw conflict('Finish or delete the current game before reopening this one.')
-    game.status=status; game.updatedAt=new Date().toISOString()
+    game.status=status; game.outcome=null; game.updatedAt=new Date().toISOString()
     if(status==='ACTIVE'){state.currentGame=game;state.historyGames=state.historyGames.filter(item=>item.id!==id)}
     else {addHistory(state,game);if(state.currentGame?.id===id)state.currentGame=null}
     writeState(state)
@@ -124,18 +128,10 @@ export const localGameRepository={
   },
 }
 
-function standings(game){
-  const groups=new Map()
-  for(const player of game.players){const key=game.scoreMode==='TEAM'?`team-${player.teamNumber}`:player.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(player)}
-  const result=[...groups].map(([key,members])=>({key,name:game.scoreMode==='TEAM'?members.map(player=>player.name).join(' & '):members[0].name,playerIds:members.map(player=>player.id),teamNumber:members[0].teamNumber,total:sum(members.map(player=>player.totalScore)),position:0}))
-  result.sort((a,b)=>game.scoreDirection==='HIGH_WINS'?b.total-a.total:a.total-b.total)
-  return result.map((item,index)=>({...item,position:index+1}))
-}
-
 function roundScore(game,delta){const player=game.players.find(item=>item.id===delta.playerId);if(game.scoreMode==='INDIVIDUAL')return {key:player.id,name:player.name,points:delta.points};const members=game.players.filter(item=>item.teamNumber===player.teamNumber);return {key:`team-${player.teamNumber}`,name:members.map(item=>item.name).join(' & '),points:delta.points}}
-function mutation(game,extra={}){return {status:game.status,standings:standings(game),roundCount:game.roundCount,updatedAt:game.updatedAt,round:null,removedRoundId:null,...extra}}
+function mutation(game,extra={}){return {status:game.status,standings:calculateStandings(game),outcome:game.outcome??null,roundCount:game.roundCount,updatedAt:game.updatedAt,round:null,removedRoundId:null,...extra}}
 function summary(game){const {players:_,rounds:__,...item}=publicGame(game);return item}
-function publicGame(game){return {...clone(game),players:game.players.map(({totalScore:_,...player})=>player),standings:standings(game),rounds:game.rounds.slice(0,HISTORY_PAGE_SIZE).map(publicRound),hasMoreRounds:game.rounds.length>HISTORY_PAGE_SIZE}}
+function publicGame(game){return {...clone(game),players:game.players.map(({totalScore:_,...player})=>player),standings:calculateStandings(game),rounds:game.rounds.slice(0,HISTORY_PAGE_SIZE).map(publicRound),hasMoreRounds:game.rounds.length>HISTORY_PAGE_SIZE}}
 function publicRound(round){const {_deltas:_,...item}=round;return clone(item)}
 
 function validateCreate(request,preset){
@@ -153,7 +149,6 @@ function readState(){try{const current=normalizeState(JSON.parse(localStorage.ge
 function normalizeState(state){if(state?.version===2&&Array.isArray(state.historyGames))return {...state,historyGames:state.historyGames.slice(0,HISTORY_GAME_LIMIT)};if(state?.version===1&&'historyGame'in state)return {version:2,currentGame:state.currentGame||null,historyGames:state.historyGame?[state.historyGame]:[]};return null}
 function writeState(state){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(error){throw new Error(error?.name==='QuotaExceededError'?'Browser storage is full. Export or delete a game and try again.':'Could not save this game on this device.')}}
 function nullableNumber(value){return value==null||value===''?null:Number(value)}
-function sum(values){return values.reduce((total,value)=>total+Number(value),0)}
 function ensure(condition,message){if(!condition)throw bad(message)}
 function bad(message){return new Error(message)}
 function conflict(message){return new Error(message)}
