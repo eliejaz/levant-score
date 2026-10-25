@@ -1,4 +1,4 @@
-# Levant Score · سهرة
+# Levant Score
 
 A bilingual, mobile-first scorekeeper for Lebanese and Arab card nights. It ships with presets for Leekha (solo and teams), 400, Tarneeb, Chinese, Trex/Complex, Belote, Basra, and Hand. The custom preset covers any house game without changing code.
 
