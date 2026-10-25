@@ -67,6 +67,7 @@ test('local storage retains one active game and the latest ten finished games',a
   const page=await games.listGames({status:'FINISHED',size:20})
   assert.equal(page.totalItems,10)
   assert.equal(page.items[0].id,ids.at(-1))
+  assert.ok(page.items[0].createdAt)
   assert.ok(!page.items.some(item=>item.id===first.id))
 })
 

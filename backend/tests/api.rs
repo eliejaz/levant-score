@@ -68,6 +68,7 @@ async fn auth_game_round_validation_and_delete_work_end_to_end(pool: sqlx::PgPoo
     assert_eq!(games.0, StatusCode::OK);
     assert_eq!(games.1["items"].as_array().unwrap().len(), 1);
     assert_eq!(games.1["items"][0]["roundCount"], 1);
+    assert!(games.1["items"][0]["createdAt"].is_string());
     assert_eq!(games.1["items"][0]["standings"][0]["total"], 6);
     assert_eq!(games.1["items"][0]["standings"][1]["total"], -8);
     assert_eq!(games.1["stats"]["allTimeRounds"], 1);

@@ -134,7 +134,7 @@ function standings(game){
 
 function roundScore(game,delta){const player=game.players.find(item=>item.id===delta.playerId);if(game.scoreMode==='INDIVIDUAL')return {key:player.id,name:player.name,points:delta.points};const members=game.players.filter(item=>item.teamNumber===player.teamNumber);return {key:`team-${player.teamNumber}`,name:members.map(item=>item.name).join(' & '),points:delta.points}}
 function mutation(game,extra={}){return {status:game.status,standings:standings(game),roundCount:game.roundCount,updatedAt:game.updatedAt,round:null,removedRoundId:null,...extra}}
-function summary(game){const {players:_,rounds:__,createdAt:___,...item}=publicGame(game);return item}
+function summary(game){const {players:_,rounds:__,...item}=publicGame(game);return item}
 function publicGame(game){return {...clone(game),players:game.players.map(({totalScore:_,...player})=>player),standings:standings(game),rounds:game.rounds.slice(0,HISTORY_PAGE_SIZE).map(publicRound),hasMoreRounds:game.rounds.length>HISTORY_PAGE_SIZE}}
 function publicRound(round){const {_deltas:_,...item}=round;return clone(item)}
 

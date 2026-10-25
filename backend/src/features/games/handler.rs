@@ -801,6 +801,7 @@ fn summary(game: &DbGame, players: &[DbPlayer]) -> GameSummary {
         round_limit: game.round_limit,
         round_count: game.round_count,
         standings: standings_from_players(game, players),
+        created_at: game.created_at,
         updated_at: game.updated_at,
     }
 }

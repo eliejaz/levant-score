@@ -131,6 +131,7 @@ pub struct GameSummary {
     pub round_limit: Option<i32>,
     pub round_count: i32,
     pub standings: Vec<StandingView>,
+    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
