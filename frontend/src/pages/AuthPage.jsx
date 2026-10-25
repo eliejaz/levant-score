@@ -6,7 +6,7 @@ import { useLanguage } from '../lib/language'
 import Logo from '../components/Logo'
 
 export default function AuthPage() {
-  const [params]=useSearchParams(); const navigate=useNavigate(); const initial=params.get('tab')==='login'?'login':'signup'
+  const [params]=useSearchParams(); const navigate=useNavigate(); const initial=params.get('tab')==='signup'?'signup':'login'
   const [mode, setMode] = useState(initial); const [show, setShow] = useState(false); const [loading,setLoading]=useState(false); const [error,setError]=useState('')
   const { login, signup, chooseOnline } = useAuth(); const { lang, setLang } = useLanguage(); const ar = lang === 'ar'
   useEffect(()=>{chooseOnline()},[])
@@ -31,7 +31,6 @@ export default function AuthPage() {
         <span className="kicker">{ar ? 'أهلاً وسهلاً' : 'AHLAN W SAHLAN'}</span>
         <h2>{mode === 'signup' ? (ar ? 'خلّينا نبلّش' : 'Let’s set the table') : (ar ? 'رجعت نورت' : 'Welcome back')}</h2>
         <p>{mode === 'signup' ? (ar ? 'حساب واحد، كل سهراتك محفوظة.' : 'One account. Every game night, remembered.') : (ar ? 'كمّل اللعبة من وين تركتها.' : 'Pick up right where your table left off.')}</p>
-        <div className="auth-tabs"><button className={mode==='signup'?'active':''} onClick={()=>changeMode('signup')}>{ar?'حساب جديد':'Sign up'}</button><button className={mode==='login'?'active':''} onClick={()=>changeMode('login')}>{ar?'تسجيل الدخول':'Log in'}</button></div>
         <form onSubmit={submit}>
           {mode === 'signup' && <label>{ar?'اسمك':'Your name'}<input name="displayName" required maxLength="80" placeholder={ar?'مثلاً: إيلي':'e.g. Elie'}/></label>}
           <label>{ar?'البريد الإلكتروني':'Email address'}<input type="email" name="email" required placeholder="you@example.com" dir="ltr"/></label>
@@ -39,6 +38,7 @@ export default function AuthPage() {
           {error && <div className="form-error">{error}</div>}
           <button className="primary-button auth-submit" disabled={loading}>{loading ? <span className="button-spinner"/> : <>{mode==='signup'?(ar?'إنشاء الحساب':'Create my account'):(ar?'دخول':'Log in')}<ArrowRight size={19}/></>}</button>
         </form>
+        <div className="auth-mode-helper"><span>{mode==='login'?(ar?'ما عندك حساب؟':'Don’t have an account?'):(ar?'عندك حساب؟':'Already have an account?')}</span><button type="button" onClick={()=>changeMode(mode==='login'?'signup':'login')}>{mode==='login'?(ar?'أنشئ حساباً':'Sign up'):(ar?'سجّل الدخول':'Log in')}</button></div>
         {mode==='signup' && <div className="auth-trust"><span><Check size={14}/>{ar?'مجاني':'Free to use'}</span><span><Check size={14}/>{ar?'نتائجك محفوظة':'Scores saved'}</span></div>}
       </div>
     </section>

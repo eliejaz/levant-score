@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, Plus, ShieldCheck, Users, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, CirclePlay, Plus, ShieldCheck, Trash2, Users, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
 import { useLanguage } from '../lib/language'
 
 export default function NewGame() {
-  const [presets,setPresets]=useState(null); const [selected,setSelected]=useState(null); const [step,setStep]=useState(1); const [players,setPlayers]=useState([]); const [title,setTitle]=useState(''); const [target,setTarget]=useState(''); const [direction,setDirection]=useState('HIGH_WINS'); const [thresholdRule,setThresholdRule]=useState('NONE'); const [teamMode,setTeamMode]=useState(false); const [scoreMode,setScoreMode]=useState('INDIVIDUAL'); const [customName,setCustomName]=useState(''); const [error,setError]=useState(''); const [saving,setSaving]=useState(false)
+  const [presets,setPresets]=useState(null); const [selected,setSelected]=useState(null); const [step,setStep]=useState(1); const [players,setPlayers]=useState([]); const [title,setTitle]=useState(''); const [target,setTarget]=useState(''); const [direction,setDirection]=useState('HIGH_WINS'); const [thresholdRule,setThresholdRule]=useState('NONE'); const [teamMode,setTeamMode]=useState(false); const [scoreMode,setScoreMode]=useState('INDIVIDUAL'); const [customName,setCustomName]=useState(''); const [error,setError]=useState(''); const [saving,setSaving]=useState(false); const [ongoing,setOngoing]=useState(null); const [pendingGame,setPendingGame]=useState(null); const [resolving,setResolving]=useState(false); const [modalError,setModalError]=useState('')
   const {t,lang}=useLanguage(); const ar=lang==='ar'; const nav=useNavigate()
   useEffect(()=>{gameRepository.getPresets().then(setPresets).catch(e=>setError(e.message))},[])
   const counts=selected?playerCounts(selected):[]; const fixedCount=counts.length===1; const discreteCount=selected?.code==='basra'
@@ -19,7 +19,10 @@ export default function NewGame() {
   const toggleTeams=next=>{setTeamMode(next);setScoreMode(next?'TEAM':'INDIVIDUAL');setPlayers(players.map((p,i)=>({...p,teamNumber:next?(i%2)+1:null})))}
   const presetTeamsValid=selected?.code==='custom'||!teamMode||([1,2].every(team=>players.filter(p=>p.teamNumber===team).length===players.length/2))
   const valid=counts.includes(players.length)&&players.every(p=>p.name.trim())&&title.trim()&&(!teamMode||players.every(p=>p.teamNumber))&&presetTeamsValid
-  const submit=async()=>{setSaving(true);setError('');try{const game=await gameRepository.createGame({title,presetCode:selected.code,customPresetName:customName||null,teamMode,scoreDirection:direction,targetScore:target===''?null:Number(target),thresholdRule,scoreMode,roundLimit:selected.roundLimit,players});nav(`/games/${game.id}`)}catch(e){setError(e.message)}finally{setSaving(false)}}
+  const request=()=>({title,presetCode:selected.code,customPresetName:customName||null,teamMode,scoreDirection:direction,targetScore:target===''?null:Number(target),thresholdRule,scoreMode,roundLimit:selected.roundLimit,players})
+  const submit=async()=>{const next=request();setSaving(true);setError('');try{const game=await gameRepository.createGame(next);nav(`/games/${game.id}`)}catch(e){if(e.message==='Finish or delete the current game before starting another one.'){try{const active=await gameRepository.listGames({status:'ACTIVE',page:1,size:1});if(active.items[0]){setOngoing(active.items[0]);setPendingGame(next);setModalError('');return}}catch{}setError(ar?'هناك لعبة جارية. ارجع إلى الصفحة الرئيسية للمتابعة أو الحذف.':'There is an active game. Return home to continue or delete it.')}else setError(e.message)}finally{setSaving(false)}}
+  const closeOngoing=()=>{if(!resolving){setOngoing(null);setPendingGame(null);setModalError('')}}
+  const replaceOngoing=async()=>{setResolving(true);setModalError('');try{await gameRepository.deleteGame(ongoing.id);const game=await gameRepository.createGame(pendingGame);nav(`/games/${game.id}`,{replace:true})}catch(e){setModalError(e.message)}finally{setResolving(false)}}
   const limitLabel=thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:thresholdRule==='WIN_AT_OR_ABOVE'?t.winningTarget:t.target
   return <Shell compact><div className="new-game page-container narrow">
     <button className="text-back" onClick={()=>step===2?setStep(1):nav('/dashboard')}><ChevronLeft size={18}/>{t.back}</button>
@@ -40,6 +43,7 @@ export default function NewGame() {
       {error&&<div className="form-error setup-error">{error}</div>}
       <div className="wizard-actions"><button className="secondary-button" onClick={()=>setStep(1)}><ArrowLeft size={18}/>{t.back}</button><button className="primary-button" disabled={!valid||saving} onClick={submit}>{saving?<span className="button-spinner"/>:<><Check size={19}/>{t.create}</>}</button></div>
     </>}
+    {ongoing&&<div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&closeOngoing()}><section className="confirm-modal ongoing-game-modal" role="dialog" aria-modal="true" aria-labelledby="ongoing-game-title"><div className="ongoing-game-icon"><CirclePlay size={25}/></div><h2 id="ongoing-game-title">{ar?'هناك لعبة جارية':'A game is already in progress'}</h2><p>{ar?'يمكنك متابعة اللعبة الحالية، أو حذفها والبدء باللعبة الجديدة التي جهّزتها.':'Continue your current game, or delete it and start the new game you just prepared.'}</p><div className="ongoing-game-summary"><div><strong>{ongoing.title}</strong><span>{ongoing.presetName}</span></div><b>{ongoing.roundCount} {ar?'جولة':ongoing.roundCount===1?'round':'rounds'}</b></div>{modalError&&<div className="form-error">{modalError}</div>}<div className="ongoing-game-actions"><button type="button" className="danger-button" onClick={replaceOngoing} disabled={resolving}><Trash2 size={17}/>{resolving?'…':ar?'احذف وابدأ الجديدة':'Delete & start new'}</button><button type="button" className="primary-button" onClick={()=>nav(`/games/${ongoing.id}`)} disabled={resolving}>{ar?'تابع اللعبة الحالية':'Continue current game'}<ArrowRight size={17}/></button></div></section></div>}
   </div></Shell>
 }
 
