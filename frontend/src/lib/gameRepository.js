@@ -11,6 +11,7 @@ const apiRepository={
   deleteGame:id=>api(`/games/${id}`,{method:'DELETE'}),
   rematchGame:id=>api(`/games/${id}/rematch`,{method:'POST'}),
   addRound:(id,request)=>api(`/games/${id}/rounds`,{method:'POST',body:JSON.stringify(request)}),
+  updateRound:(id,roundId,request)=>api(`/games/${id}/rounds/${roundId}`,{method:'PATCH',body:JSON.stringify(request)}),
   undoRound:id=>api(`/games/${id}/rounds/latest`,{method:'DELETE'}),
   setStatus:(id,status)=>api(`/games/${id}/status`,{method:'PATCH',body:JSON.stringify({status})}),
 }

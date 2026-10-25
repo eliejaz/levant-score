@@ -58,17 +58,28 @@ test('Trex, Basra, Belote, and Hand use the same preset formulas',async()=>{
   assert.deepEqual(result.standings.map(item=>item.total),[0,10,20,30])
 })
 
-test('local storage retains at most one active game and one finished game',async()=>{
+test('local storage retains one active game and the latest ten finished games',async()=>{
   const first=await games.createGame(createRequest('custom'))
   await assert.rejects(()=>games.createGame(createRequest('custom')),/current game/)
   await games.setStatus(first.id,'FINISHED')
-  const second=await games.createGame(createRequest('custom'))
-  let page=await games.listGames({status:'FINISHED'})
-  assert.equal(page.totalItems,1)
-  await games.setStatus(second.id,'FINISHED')
-  page=await games.listGames({status:'FINISHED'})
-  assert.equal(page.totalItems,1)
-  assert.equal(page.items[0].id,second.id)
+  const ids=[first.id]
+  for(let index=0;index<10;index+=1){const game=await games.createGame(createRequest('custom'));ids.push(game.id);await games.setStatus(game.id,'FINISHED')}
+  const page=await games.listGames({status:'FINISHED',size:20})
+  assert.equal(page.totalItems,10)
+  assert.equal(page.items[0].id,ids.at(-1))
+  assert.ok(!page.items.some(item=>item.id===first.id))
+})
+
+test('editing a saved hand replays its scores and standings',async()=>{
+  const game=await games.createGame(createRequest('leekha-team'))
+  const original={scores:game.players.map((player,index)=>({playerId:player.id,points:[13,10,8,5][index]}))}
+  const added=await games.addRound(game.id,original)
+  await games.addRound(game.id,{scores:game.players.map(player=>({playerId:player.id,points:9}))})
+  const updated=await games.updateRound(game.id,added.round.id,{note:'corrected',scores:game.players.map((player,index)=>({playerId:player.id,points:[0,12,12,12][index]}))})
+  assert.deepEqual(updated.standings.map(item=>item.total),[9,21,21,21])
+  assert.equal(updated.roundCount,2)
+  assert.equal(updated.rounds[1].note,'corrected')
+  assert.deepEqual(updated.rounds[1].inputData.scores.map(item=>item.points),[0,12,12,12])
 })
 
 function createRequest(code){

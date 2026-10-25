@@ -1,15 +1,17 @@
 import { gamePresets, getPreset } from './presets.js'
 import { evaluateRound } from './rulesEngine.js'
 
-const STORAGE_KEY='levant-score:local:v1'
+const STORAGE_KEY='levant-score:local:v2'
+const LEGACY_STORAGE_KEY='levant-score:local:v1'
 const HISTORY_PAGE_SIZE=20
-const EMPTY_STATE={version:1,currentGame:null,historyGame:null}
+const HISTORY_GAME_LIMIT=10
+const EMPTY_STATE={version:2,currentGame:null,historyGames:[]}
 
 export const localGameRepository={
   async getPresets(){ return clone(gamePresets) },
   async listGames({status='ACTIVE',page=1,size=6}={}){
     const state=readState()
-    const games=[state.currentGame,state.historyGame].filter(Boolean)
+    const games=[state.currentGame,...state.historyGames].filter(Boolean)
     const filtered=games.filter(game=>game.status===status).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))
     const start=(page-1)*size
     return {items:filtered.slice(start,start+size).map(summary),page,size,totalItems:filtered.length,totalPages:Math.ceil(filtered.length/size),stats:{allTimeRounds:games.reduce((sum,game)=>sum+game.roundCount,0),activeGames:games.filter(game=>game.status==='ACTIVE').length,finishedGames:games.filter(game=>game.status==='FINISHED').length}}
@@ -36,8 +38,7 @@ export const localGameRepository={
   async deleteGame(id){
     const state=readState()
     if(state.currentGame?.id===id) state.currentGame=null
-    else if(state.historyGame?.id===id) state.historyGame=null
-    else throw notFound()
+    else {const before=state.historyGames.length;state.historyGames=state.historyGames.filter(game=>game.id!==id);if(state.historyGames.length===before)throw notFound()}
     writeState(state)
   },
   async rematchGame(id){
@@ -45,7 +46,7 @@ export const localGameRepository={
     if(state.currentGame&&state.currentGame.id!==id) throw conflict('Finish or delete the current game before starting a rematch.')
     const now=new Date().toISOString(), nextId=uuid()
     const next={...clone(source),id:nextId,status:'ACTIVE',roundCount:0,rounds:[],players:source.players.map(player=>({...player,id:uuid(),totalScore:0})),createdAt:now,updatedAt:now}
-    if(source.status==='FINISHED') state.historyGame=source
+    if(source.status==='FINISHED') addHistory(state,source)
     state.currentGame=next
     writeState(state)
     return publicGame(next)
@@ -60,13 +61,40 @@ export const localGameRepository={
     const deltas=evaluation.scores.map(score=>({playerId:score.playerId,points:score.points}))
     for(const delta of deltas) game.players.find(player=>player.id===delta.playerId).totalScore+=delta.points
     game.roundCount+=1
-    const round={id:roundId,roundNumber:game.roundCount,ruleCode:request.ruleCode||null,note:request.note?.trim()||null,createdAt:now,scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas}
+    const round={id:roundId,roundNumber:game.roundCount,ruleCode:request.ruleCode||null,note:request.note?.trim()||null,createdAt:now,inputData:clone(request),scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas}
     game.rounds.unshift(round)
     game.status=evaluation.finished?'FINISHED':'ACTIVE'
     game.updatedAt=now
-    if(game.status==='FINISHED'){state.currentGame=null;state.historyGame=game}else state.currentGame=game
+    if(game.status==='FINISHED'){state.currentGame=null;addHistory(state,game)}else state.currentGame=game
     writeState(state)
     return mutation(game,{round:publicRound(round)})
+  },
+  async updateRound(id,roundId,request){
+    const state=readState(), source=requireGame(state,id)
+    if(!request.scores?.length) throw bad('scores must not be empty')
+    if((request.note?.length||0)>240) throw bad('note must be at most 240 characters')
+    if(!source.rounds.some(round=>round.id===roundId)) throw notFound()
+    const originals=source.rounds.slice().sort((a,b)=>a.roundNumber-b.roundNumber)
+    const game=clone(source)
+    game.players.forEach(player=>{player.totalScore=0})
+    game.rounds=[];game.roundCount=0;game.status='ACTIVE'
+    for(let index=0;index<originals.length;index+=1){
+      const original=originals[index]
+      const input=original.id===roundId?clone(request):clone(original.inputData)
+      if(!input)throw conflict('An older round cannot be replayed. Undo it and enter it again before editing earlier rounds.')
+      const evaluation=await evaluateRound(game,input)
+      if(evaluation.finished&&index<originals.length-1)throw conflict('This change would end the game before a later round. Undo the later rounds first.')
+      const deltas=evaluation.scores.map(score=>({playerId:score.playerId,points:score.points}))
+      for(const delta of deltas) game.players.find(player=>player.id===delta.playerId).totalScore+=delta.points
+      game.roundCount+=1
+      game.rounds.unshift({id:original.id,roundNumber:original.roundNumber,ruleCode:input.ruleCode||null,note:input.note?.trim()||null,createdAt:original.createdAt,inputData:clone(input),scores:deltas.map(delta=>roundScore(game,delta)),_deltas:deltas})
+      game.status=evaluation.finished?'FINISHED':'ACTIVE'
+    }
+    if(game.status==='ACTIVE'&&state.currentGame&&state.currentGame.id!==id)throw conflict('Finish or delete the current game before reopening this one.')
+    game.updatedAt=new Date().toISOString()
+    saveGameInSlot(state,game)
+    writeState(state)
+    return publicGame(game)
   },
   async undoRound(id){
     const state=readState(), game=requireGame(state,id), round=game.rounds[0]
@@ -82,8 +110,8 @@ export const localGameRepository={
     const state=readState(), game=requireGame(state,id)
     if(status==='ACTIVE'&&state.currentGame&&state.currentGame.id!==id) throw conflict('Finish or delete the current game before reopening this one.')
     game.status=status; game.updatedAt=new Date().toISOString()
-    if(status==='ACTIVE'){state.currentGame=game;if(state.historyGame?.id===id)state.historyGame=null}
-    else {state.historyGame=game;if(state.currentGame?.id===id)state.currentGame=null}
+    if(status==='ACTIVE'){state.currentGame=game;state.historyGames=state.historyGames.filter(item=>item.id!==id)}
+    else {addHistory(state,game);if(state.currentGame?.id===id)state.currentGame=null}
     writeState(state)
     return mutation(game)
   },
@@ -91,8 +119,8 @@ export const localGameRepository={
   importData(raw){
     let state
     try{state=JSON.parse(raw)}catch{throw bad('The backup file is not valid JSON')}
-    if(state?.version!==1||!('currentGame'in state)||!('historyGame'in state)) throw bad('This is not a Levant Score local backup')
-    writeState(state)
+    const normalized=normalizeState(state);if(!normalized)throw bad('This is not a Levant Score local backup')
+    writeState(normalized)
   },
 }
 
@@ -118,9 +146,11 @@ function validateCreate(request,preset){
   if(teamMode){ensure(request.players.every(player=>Number.isInteger(Number(player.teamNumber))&&Number(player.teamNumber)>0),'Choose a team for every player');if(preset.code!=='custom'){const counts=[...new Set(request.players.map(player=>Number(player.teamNumber)))].map(team=>request.players.filter(player=>Number(player.teamNumber)===team).length);ensure(counts.length===2&&counts[0]===counts[1],'Both teams must have the same number of players.')}}
 }
 
-function saveGameInSlot(state,game){if(game.status==='ACTIVE'){state.currentGame=game;if(state.historyGame?.id===game.id)state.historyGame=null}else{state.historyGame=game;if(state.currentGame?.id===game.id)state.currentGame=null}}
-function requireGame(state,id){const game=state.currentGame?.id===id?state.currentGame:state.historyGame?.id===id?state.historyGame:null;if(!game)throw notFound();return game}
-function readState(){try{const parsed=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');return parsed?.version===1?parsed:clone(EMPTY_STATE)}catch{return clone(EMPTY_STATE)}}
+function saveGameInSlot(state,game){if(game.status==='ACTIVE'){state.currentGame=game;state.historyGames=state.historyGames.filter(item=>item.id!==game.id)}else{addHistory(state,game);if(state.currentGame?.id===game.id)state.currentGame=null}}
+function addHistory(state,game){state.historyGames=[game,...state.historyGames.filter(item=>item.id!==game.id)].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,HISTORY_GAME_LIMIT)}
+function requireGame(state,id){const game=state.currentGame?.id===id?state.currentGame:state.historyGames.find(item=>item.id===id);if(!game)throw notFound();return game}
+function readState(){try{const current=normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'));if(current)return current;const legacy=normalizeState(JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY)||'null'));return legacy||clone(EMPTY_STATE)}catch{return clone(EMPTY_STATE)}}
+function normalizeState(state){if(state?.version===2&&Array.isArray(state.historyGames))return {...state,historyGames:state.historyGames.slice(0,HISTORY_GAME_LIMIT)};if(state?.version===1&&'historyGame'in state)return {version:2,currentGame:state.currentGame||null,historyGames:state.historyGame?[state.historyGame]:[]};return null}
 function writeState(state){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(error){throw new Error(error?.name==='QuotaExceededError'?'Browser storage is full. Export or delete a game and try again.':'Could not save this game on this device.')}}
 function nullableNumber(value){return value==null||value===''?null:Number(value)}
 function sum(values){return values.reduce((total,value)=>total+Number(value),0)}

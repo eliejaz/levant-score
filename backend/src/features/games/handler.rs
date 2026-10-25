@@ -297,6 +297,10 @@ pub async fn add_round(
         round_number,
         rule_code: request.rule_code.clone(),
         note: note.clone(),
+        input_data: Some(
+            serde_json::to_value(&request)
+                .map_err(|error| ApiError::Internal(error.to_string()))?,
+        ),
         created_at: now,
     };
     game.rounds.insert(0, proposed_round.clone());
@@ -319,11 +323,12 @@ pub async fn add_round(
     let player_ids: Vec<Uuid> = entries.iter().map(|(player, _)| player.id).collect();
     let score_values: Vec<i32> = entries.iter().map(|(_, value)| *value).collect();
 
-    let inserted_round_number = sqlx::query_scalar::<_, i32>("WITH bumped_game AS (UPDATE games SET round_count=round_count+1,status=$8,updated_at=$5 WHERE id=$2 AND owner_id=$9 AND status='ACTIVE' RETURNING round_count), inserted_round AS (INSERT INTO rounds (id,game_id,round_number,rule_code,note,created_at) SELECT $1,$2,bumped_game.round_count,$3,$4,$5 FROM bumped_game RETURNING id,round_number), inserted_scores AS (INSERT INTO score_entries (round_id,player_id,points) SELECT inserted_round.id,scores.player_id,scores.points FROM inserted_round CROSS JOIN UNNEST($6::uuid[],$7::int[]) AS scores(player_id,points) RETURNING player_id,points), updated_players AS (UPDATE players p SET total_score=p.total_score+scores.points FROM inserted_scores scores WHERE p.id=scores.player_id AND p.game_id=$2 RETURNING p.id) SELECT round_number FROM inserted_round")
+    let inserted_round_number = sqlx::query_scalar::<_, i32>("WITH bumped_game AS (UPDATE games SET round_count=round_count+1,status=$9,updated_at=$6 WHERE id=$2 AND owner_id=$10 AND status='ACTIVE' RETURNING round_count), inserted_round AS (INSERT INTO rounds (id,game_id,round_number,rule_code,note,input_data,created_at) SELECT $1,$2,bumped_game.round_count,$3,$4,$5,$6 FROM bumped_game RETURNING id,round_number), inserted_scores AS (INSERT INTO score_entries (round_id,player_id,points) SELECT inserted_round.id,scores.player_id,scores.points FROM inserted_round CROSS JOIN UNNEST($7::uuid[],$8::int[]) AS scores(player_id,points) RETURNING player_id,points), updated_players AS (UPDATE players p SET total_score=p.total_score+scores.points FROM inserted_scores scores WHERE p.id=scores.player_id AND p.game_id=$2 RETURNING p.id) SELECT round_number FROM inserted_round")
         .bind(round_id)
         .bind(id)
         .bind(&request.rule_code)
         .bind(note)
+        .bind(&proposed_round.input_data)
         .bind(now)
         .bind(&player_ids)
         .bind(&score_values)
@@ -344,6 +349,160 @@ pub async fn add_round(
         round: round_views(&game).into_iter().next(),
         removed_round_id: None,
     }))
+}
+
+pub async fn update_round(
+    State(state): State<AppState>,
+    AuthUser(owner): AuthUser,
+    Path((id, round_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<AddRoundRequest>,
+) -> ApiResult<Json<GameView>> {
+    require(!request.scores.is_empty(), "scores must not be empty")?;
+    if request
+        .note
+        .as_ref()
+        .is_some_and(|note| note.chars().count() > 240)
+    {
+        return Err(bad("note must be at most 240 characters"));
+    }
+    if request
+        .rule_code
+        .as_ref()
+        .is_some_and(|code| code.chars().count() > 40)
+    {
+        return Err(bad("ruleCode must be at most 40 characters"));
+    }
+
+    let mut source = load_game_state(&state.pool, id, owner, i64::from(i32::MAX)).await?;
+    if !source.rounds.iter().any(|round| round.id == round_id) {
+        return Err(ApiError::NotFound("Round not found".into()));
+    }
+    let previous_updated_at = source.game.updated_at;
+    let mut original_rounds = source.rounds.clone();
+    original_rounds.sort_by_key(|round| round.round_number);
+
+    for player in &mut source.players {
+        player.total_score = 0;
+    }
+    source.game.round_count = 0;
+    source.game.status = Status::Active.as_str().to_owned();
+    source.rounds.clear();
+    source.scores.clear();
+
+    let total_rounds = original_rounds.len();
+    for (index, original) in original_rounds.into_iter().enumerate() {
+        let round_request = if original.id == round_id {
+            request.clone()
+        } else {
+            original
+                .input_data
+                .as_ref()
+                .ok_or_else(|| ApiError::Conflict("An older round cannot be replayed. Undo it and enter it again before editing earlier rounds.".into()))
+                .and_then(|value| serde_json::from_value(value.clone()).map_err(|_| ApiError::Conflict("A saved round is not editable. Undo it and enter it again before editing earlier rounds.".into())))?
+        };
+        let rules::Evaluation { entries, finished } = rules::evaluate(&source, &round_request)?;
+        if finished && index + 1 < total_rounds {
+            return Err(ApiError::Conflict(
+                "This change would end the game before a later round. Undo the later rounds first."
+                    .into(),
+            ));
+        }
+        let stored_request = serde_json::to_value(&round_request)
+            .map_err(|error| ApiError::Internal(error.to_string()))?;
+        let replayed_round = DbRound {
+            id: original.id,
+            round_number: original.round_number,
+            rule_code: round_request.rule_code.clone(),
+            note: round_request
+                .note
+                .as_deref()
+                .map(str::trim)
+                .filter(|note| !note.is_empty())
+                .map(str::to_owned),
+            input_data: Some(stored_request),
+            created_at: original.created_at,
+        };
+        for (player, points) in entries {
+            if let Some(current) = source.players.iter_mut().find(|item| item.id == player.id) {
+                current.total_score += points;
+            }
+            source.scores.push(DbScore {
+                round_id: original.id,
+                player_id: player.id,
+                points,
+            });
+        }
+        source.rounds.insert(0, replayed_round);
+        source.game.round_count += 1;
+        source.game.status = if finished {
+            Status::Finished.as_str().to_owned()
+        } else {
+            Status::Active.as_str().to_owned()
+        };
+    }
+
+    let now = Utc::now();
+    let player_ids: Vec<Uuid> = source.players.iter().map(|player| player.id).collect();
+    let player_totals: Vec<i32> = source
+        .players
+        .iter()
+        .map(|player| player.total_score)
+        .collect();
+    let score_round_ids: Vec<Uuid> = source.scores.iter().map(|score| score.round_id).collect();
+    let score_player_ids: Vec<Uuid> = source.scores.iter().map(|score| score.player_id).collect();
+    let score_values: Vec<i32> = source.scores.iter().map(|score| score.points).collect();
+    let edited_round = source
+        .rounds
+        .iter()
+        .find(|round| round.id == round_id)
+        .expect("edited round exists after replay");
+
+    let mut transaction = state.pool.begin().await?;
+    let updated = sqlx::query(
+        "UPDATE games SET status=$1,updated_at=$2 WHERE id=$3 AND owner_id=$4 AND updated_at=$5",
+    )
+    .bind(&source.game.status)
+    .bind(now)
+    .bind(id)
+    .bind(owner)
+    .bind(previous_updated_at)
+    .execute(&mut *transaction)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::Conflict(
+            "The game changed; refresh and try again".into(),
+        ));
+    }
+    sqlx::query("UPDATE rounds SET rule_code=$1,note=$2,input_data=$3 WHERE id=$4 AND game_id=$5")
+        .bind(&edited_round.rule_code)
+        .bind(&edited_round.note)
+        .bind(&edited_round.input_data)
+        .bind(round_id)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("UPDATE players AS player SET total_score=score.total FROM UNNEST($1::uuid[],$2::int[]) AS score(id,total) WHERE player.id=score.id AND player.game_id=$3")
+        .bind(&player_ids)
+        .bind(&player_totals)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        "DELETE FROM score_entries WHERE round_id IN (SELECT id FROM rounds WHERE game_id=$1)",
+    )
+    .bind(id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("INSERT INTO score_entries (round_id,player_id,points) SELECT score.round_id,score.player_id,score.points FROM UNNEST($1::uuid[],$2::uuid[],$3::int[]) AS score(round_id,player_id,points)")
+        .bind(&score_round_ids)
+        .bind(&score_player_ids)
+        .bind(&score_values)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+
+    source.game.updated_at = now;
+    Ok(Json(view(&source)))
 }
 
 pub async fn undo(
@@ -453,7 +612,7 @@ async fn load_game_state(
     let (game, players, rounds) = tokio::try_join!(
         fetch_game(pool, id, owner),
         load_players(pool, id),
-        sqlx::query_as::<_, DbRound>("SELECT id,round_number,rule_code,note,created_at FROM rounds WHERE game_id=$1 ORDER BY round_number DESC LIMIT $2")
+        sqlx::query_as::<_, DbRound>("SELECT id,round_number,rule_code,note,input_data,created_at FROM rounds WHERE game_id=$1 ORDER BY round_number DESC LIMIT $2")
             .bind(id).bind(history_limit).fetch_all(pool),
     )?;
     Ok(GameData {
@@ -481,7 +640,7 @@ async fn load_rounds(
     limit: i64,
 ) -> Result<(Vec<DbRound>, Vec<DbScore>), sqlx::Error> {
     let (rounds, scores) = tokio::try_join!(
-        sqlx::query_as::<_, DbRound>("SELECT id,round_number,rule_code,note,created_at FROM rounds WHERE game_id=$1 AND round_number<$2 ORDER BY round_number DESC LIMIT $3")
+        sqlx::query_as::<_, DbRound>("SELECT id,round_number,rule_code,note,input_data,created_at FROM rounds WHERE game_id=$1 AND round_number<$2 ORDER BY round_number DESC LIMIT $3")
             .bind(id).bind(before).bind(limit).fetch_all(pool),
         sqlx::query_as::<_, DbScore>("SELECT se.round_id,se.player_id,se.points FROM score_entries se JOIN rounds r ON r.id=se.round_id JOIN players p ON p.id=se.player_id WHERE r.id IN (SELECT id FROM rounds WHERE game_id=$1 AND round_number<$2 ORDER BY round_number DESC LIMIT $3) ORDER BY r.round_number DESC,p.seat_order ASC")
             .bind(id).bind(before).bind(limit).fetch_all(pool),
@@ -741,6 +900,10 @@ fn round_views(data: &GameData) -> Vec<RoundView> {
                 rule_code: round.rule_code.clone(),
                 note: round.note.clone(),
                 created_at: round.created_at,
+                input_data: round
+                    .input_data
+                    .as_ref()
+                    .and_then(|value| serde_json::from_value(value.clone()).ok()),
                 scores,
             }
         })
@@ -839,6 +1002,7 @@ mod tests {
             round_number: 1,
             rule_code: None,
             note: None,
+            input_data: None,
             created_at: Utc::now(),
         };
         for (seat, (team, total)) in values.iter().enumerate() {

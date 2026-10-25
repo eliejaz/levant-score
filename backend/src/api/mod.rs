@@ -44,6 +44,10 @@ pub fn router(state: AppState, origins: &[String]) -> Router {
             "/api/games/{id}/rounds",
             get(games::list_rounds).post(games::add_round),
         )
+        .route(
+            "/api/games/{id}/rounds/{round_id}",
+            patch(games::update_round),
+        )
         .route("/api/games/{id}/rematch", post(games::rematch))
         .route("/api/games/{id}/rounds/latest", delete(games::undo))
         .route("/api/games/{id}/status", patch(games::set_status))

@@ -38,6 +38,7 @@ pub struct DbRound {
     pub round_number: i32,
     pub rule_code: Option<String>,
     pub note: Option<String>,
+    pub input_data: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }
 

@@ -45,7 +45,7 @@ One frontend deployment contains both modes. The home page explicitly offers sig
 | Account | Rust API + Neon PostgreSQL | Required |
 | Offline | This browser's `localStorage` | None |
 
-The offline edition keeps at most one active game and one finished game. Finishing another game replaces the previous history game. It also registers a service worker, so after the first successful load it can open without a network connection. Browser data is device- and browser-profile-specific and can be removed by clearing site data.
+The offline edition keeps at most one active game and the latest ten finished games. When an eleventh game is finished, the oldest history item is removed automatically. It also registers a service worker, so after the first successful load it can open without a network connection. Browser data is device- and browser-profile-specific and can be removed by clearing site data.
 
 `backend/game-rules` is the single authoritative implementation for scoring, round validation, and automatic game-ending rules. The API links it as a native Rust library. The frontend loads the compiled `frontend/public/game_rules.wasm`, so browser validation and offline scoring execute that exact same code rather than a JavaScript rewrite. JavaScript only adapts UI/storage data into the engine contract.
 
@@ -128,6 +128,7 @@ DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --workspac
 - Keep Leekha team scores per player and end when a player reaches 101
 - Record 400 bids and made/missed results, Tarneeb contracts, and preset-specific card totals
 - See live standings and score history
+- Edit a saved hand; the app replays that hand and all later hands through the rules engine
 - Undo the latest round
 - Finish and reopen a game
 - Start a zero-score rematch from a finished game while preserving its players and teams
@@ -164,6 +165,8 @@ SQLx migrations run automatically when the backend starts and create or update t
 > **Performance migration:** migration `0002_optimize_score_storage.sql` removes the unused score-entry UUID and compacts score storage. It clears existing games and score history once; user accounts are retained.
 
 > **Cached-state migration:** migration `0003_cached_game_state.sql` clears existing games once, preserves user accounts, and adds transactionally maintained player totals and round counts. This keeps dashboard and score-entry queries constant-time as history grows.
+
+> **Editable-round migration:** migration `0004_editable_rounds.sql` adds the original validated hand input to newly saved rounds. It does not delete existing data, but rounds created before this migration cannot be edited; they can still be viewed or undone.
 
 ### 2. Deploy the backend to Render
 

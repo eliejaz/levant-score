@@ -26,7 +26,7 @@ pub struct CreateGameRequest {
     pub players: Vec<PlayerInput>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScoreInput {
     pub player_id: Option<Uuid>,
@@ -45,7 +45,7 @@ pub struct ScoreInput {
     pub majority: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AddRoundRequest {
     pub note: Option<String>,
@@ -111,6 +111,7 @@ pub struct RoundView {
     pub rule_code: Option<String>,
     pub note: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub input_data: Option<AddRoundRequest>,
     pub scores: Vec<RoundScoreView>,
 }
 

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Flag, History, Minus, Plus, RefreshCw, RotateCcw, Trash2, Trophy, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Flag, History, Minus, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Trophy, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
@@ -12,7 +12,7 @@ const normalizeGame=data=>({...data,roundCount:data.roundCount??data.rounds?.len
 
 export default function Scoreboard() {
   const {id}=useParams(); const nav=useNavigate(); const {t,lang}=useLanguage(); const ar=lang==='ar'
-  const [game,setGame]=useState(null); const [error,setError]=useState(''); const [modal,setModal]=useState(false); const [deleteOpen,setDeleteOpen]=useState(false); const [busy,setBusy]=useState(false); const [loadingMore,setLoadingMore]=useState(false); const [expanded,setExpanded]=useState(null)
+  const [game,setGame]=useState(null); const [error,setError]=useState(''); const [modal,setModal]=useState(false); const [editingRound,setEditingRound]=useState(null); const [deleteOpen,setDeleteOpen]=useState(false); const [busy,setBusy]=useState(false); const [loadingMore,setLoadingMore]=useState(false); const [expanded,setExpanded]=useState(null)
   useEffect(()=>{
     let active=true
     setGame(null); setError('')
@@ -26,7 +26,10 @@ export default function Scoreboard() {
     if(kind==='undo'&&mutation.removedRoundId) rounds=rounds.filter(round=>round.id!==mutation.removedRoundId)
     return {...current,status:mutation.status,standings:mutation.standings,roundCount:mutation.roundCount,updatedAt:mutation.updatedAt,rounds,hasMoreRounds:mutation.roundCount>rounds.length}
   })
-  const action=async(fn,kind)=>{setBusy(true);setError('');try{const mutation=await fn();applyMutation(mutation,kind)}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const action=async(fn,kind)=>{setBusy(true);setError('');try{const mutation=await fn();applyMutation(mutation,kind);return true}catch(e){setError(e.message);return false}finally{setBusy(false)}}
+  const openAddRound=()=>{setEditingRound(null);setModal(true)}
+  const openEditRound=round=>{setEditingRound(round);setModal(true)}
+  const closeRoundModal=()=>{if(!busy){setModal(false);setEditingRound(null)}}
   const undo=()=>action(()=>gameRepository.undoRound(id),'undo')
   const toggleStatus=()=>action(()=>gameRepository.setStatus(id,game.status==='ACTIVE'?'FINISHED':'ACTIVE'))
   const loadMore=async()=>{const before=game.rounds.at(-1)?.roundNumber;if(!before)return;setLoadingMore(true);setError('');try{const page=await gameRepository.listRounds(id,{beforeRound:before,limit:HISTORY_PAGE_SIZE});setGame(current=>({...current,rounds:[...current.rounds,...page.items.filter(item=>!current.rounds.some(round=>round.id===item.id))],hasMoreRounds:page.hasMore}))}catch(e){setError(e.message)}finally{setLoadingMore(false)}}
@@ -58,24 +61,27 @@ export default function Scoreboard() {
         : <div className="leader-banner"><div className="leader-crown"><Crown size={24}/></div><div><small>{t.leading}</small><strong>{leader.name}</strong></div><div className="leader-score"><b>{leader.total}</b><span>{t.points}</span></div>{game.targetScore!=null&&<div className="target-progress"><span>{game.thresholdRule==='LOSE_AT_OR_ABOVE'?t.losingLimit:t.targetLabel} {game.targetScore}</span><div><i style={{width:`${Math.min(100,Math.abs((game.thresholdRule==='LOSE_AT_OR_ABOVE'?dangerScore:leader.total)/game.targetScore*100))}%`}}/></div></div>}</div>)}
       </div></section>
     <div className="page-container score-content"><section className="standings-section"><div className="section-label"><span className="eyebrow green">{ar?'الترتيب':'STANDINGS'}</span><p>{game.scoreDirection==='HIGH_WINS'?t.highWins:t.lowWins}</p></div><div className="standings-grid">{game.standings.map((s,i)=><div className={`standing-card ${i===0&&hasRounds?'first':''} ${thresholdLoser?.key===s.key?'limit-reached':''}`} key={s.key}><div className="rank">{hasRounds&&i===0?<Trophy size={18}/>:i+1}</div><div className="standing-avatar">{s.name.slice(0,1).toUpperCase()}</div><div className="standing-name"><strong>{s.name}</strong>{game.teamMode&&<small>{ar?`فريق ${s.teamNumber}`:`Team ${s.teamNumber}`}</small>}</div><div className="standing-total"><b>{s.total}</b><small>{t.points}</small></div></div>)}</div>
-      {game.status==='ACTIVE'&&<button className="add-round-main" onClick={()=>setModal(true)}><span><Plus size={25}/></span><div><strong>{t.addRound}</strong><small>{game.scoreMode==='INDIVIDUAL'?(ar?'سجّل نتيجة كل لاعب':'Enter a score for every player'):(ar?'سجّل نتيجة كل فريق':'Enter a score for each team')}</small></div></button>}</section>
-      <section className="history-section"><div className="history-head"><div><span className="eyebrow green">{t.history}</span><h2>{ar?'كل توزيعة، محفوظة.':'Every hand, remembered.'}</h2></div><History size={25}/></div>{!hasRounds?<div className="no-rounds"><span>♠</span><p>{t.noRounds}</p></div>:<><div className="round-list">{game.rounds.map(r=><div className={`round-row ${expanded===r.id?'expanded':''}`} key={r.id}><button onClick={()=>setExpanded(expanded===r.id?null:r.id)}><span className="round-number">{r.roundNumber}</span><div className="round-copy"><strong>{t.round} {r.roundNumber}</strong><small>{r.note||new Date(r.createdAt).toLocaleTimeString(lang==='ar'?'ar-LB':'en-LB',{hour:'2-digit',minute:'2-digit'})}</small></div><div className="round-preview">{r.scores.map(s=><span key={s.key}><i>{initials(s.name)}</i><b className={s.points<0?'negative':''}>{s.points>0?'+':''}{s.points}</b></span>)}</div>{expanded===r.id?<ChevronUp size={18}/>:<ChevronDown size={18}/>}</button>{expanded===r.id&&<div className="round-details">{r.scores.map(s=><div key={s.key}><span>{s.name}</span><b className={s.points<0?'negative':''}>{s.points>0?'+':''}{s.points}</b></div>)}</div>}</div>)}</div>{game.hasMoreRounds&&<button type="button" className="secondary-button history-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore?'…':ar?'تحميل توزيعات أقدم':'Load older hands'}</button>}</>}</section>
+      {game.status==='ACTIVE'&&<button className="add-round-main" onClick={openAddRound}><span><Plus size={25}/></span><div><strong>{t.addRound}</strong><small>{game.scoreMode==='INDIVIDUAL'?(ar?'سجّل نتيجة كل لاعب':'Enter a score for every player'):(ar?'سجّل نتيجة كل فريق':'Enter a score for each team')}</small></div></button>}</section>
+      <section className="history-section"><div className="history-head"><div><span className="eyebrow green">{t.history}</span><h2>{ar?'كل توزيعة، محفوظة.':'Every hand, remembered.'}</h2></div><History size={25}/></div>{!hasRounds?<div className="no-rounds"><span>♠</span><p>{t.noRounds}</p></div>:<><div className="round-list">{game.rounds.map(r=><div className={`round-row ${expanded===r.id?'expanded':''}`} key={r.id}><button onClick={()=>setExpanded(expanded===r.id?null:r.id)}><span className="round-number">{r.roundNumber}</span><div className="round-copy"><strong>{t.round} {r.roundNumber}</strong><small>{r.note||new Date(r.createdAt).toLocaleTimeString(lang==='ar'?'ar-LB':'en-LB',{hour:'2-digit',minute:'2-digit'})}</small></div><div className="round-preview">{r.scores.map(s=><span key={s.key}><i>{initials(s.name)}</i><b className={s.points<0?'negative':''}>{s.points>0?'+':''}{s.points}</b></span>)}</div>{expanded===r.id?<ChevronUp size={18}/>:<ChevronDown size={18}/>}</button>{expanded===r.id&&<div className="round-details">{r.scores.map(s=><div key={s.key}><span>{s.name}</span><b className={s.points<0?'negative':''}>{s.points>0?'+':''}{s.points}</b></div>)}{r.inputData?<button type="button" className="edit-round-button" onClick={()=>openEditRound(r)}><Pencil size={15}/>{ar?'تعديل التوزيعة':'Edit hand'}</button>:<small className="legacy-round-note">{ar?'يمكن تعديل التوزيعات الجديدة فقط.':'Only newly saved hands can be edited.'}</small>}</div>}</div>)}</div>{game.hasMoreRounds&&<button type="button" className="secondary-button history-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore?'…':ar?'تحميل توزيعات أقدم':'Load older hands'}</button>}</>}</section>
       {error&&<div className="form-error floating-error">{error}</div>}
     </div>
-    {game.status==='ACTIVE'&&<button className="mobile-add-score" onClick={()=>setModal(true)}><Plus size={23}/><span>{t.addRound}</span></button>}
-    {modal&&<RoundModal game={game} t={t} ar={ar} onClose={()=>setModal(false)} onSave={async body=>{await action(()=>gameRepository.addRound(id,body),'add');setModal(false)}} busy={busy}/>}
+    {game.status==='ACTIVE'&&<button className="mobile-add-score" onClick={openAddRound}><Plus size={23}/><span>{t.addRound}</span></button>}
+    {modal&&<RoundModal game={game} round={editingRound} t={t} ar={ar} onClose={closeRoundModal} onSave={async body=>{const saved=editingRound?await action(()=>gameRepository.updateRound(id,editingRound.id,body),'edit'):await action(()=>gameRepository.addRound(id,body),'add');if(saved){setModal(false);setEditingRound(null)}}} busy={busy}/>}
     {deleteOpen&&<div className="modal-backdrop" onMouseDown={e=>!busy&&e.target===e.currentTarget&&setDeleteOpen(false)}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-game-title"><div className="confirm-danger-icon"><Trash2 size={24}/></div><h2 id="delete-game-title">{t.deleteGame}</h2><p>{t.deleteGameMessage}</p><div className="confirm-actions"><button type="button" className="secondary-button" onClick={()=>setDeleteOpen(false)} disabled={busy}>{t.cancel}</button><button type="button" className="danger-button" onClick={deleteGame} disabled={busy}>{busy?<span className="button-spinner"/>:<><Trash2 size={18}/>{t.deleteForever}</>}</button></div></section></div>}
   </div></Shell>
 }
 
-function RoundModal({game,t,ar,onClose,onSave,busy}) {
+function RoundModal({game,round,t,ar,onClose,onSave,busy}) {
+  const initialRequest=round?.inputData
+  const scoringGame=useMemo(()=>round?gameBeforeRound(game,round):game,[game,round])
   const participants=game.scoreMode==='TEAM'
     ? game.standings.slice().sort((a,b)=>(a.teamNumber||0)-(b.teamNumber||0))
     : game.players.map(p=>({key:p.id,name:p.name,playerIds:[p.id],teamNumber:p.teamNumber}))
-  const initialEntry=p=>({points:0,bid:min400Bid(game,p),made:true,kingHearts:0,queens:0,diamonds:0,tricks:0,finishPosition:participants.indexOf(p)+1,cardPoints:0,bonusPoints:0,basras:0,majority:false})
-  const [entries,setEntries]=useState(Object.fromEntries(participants.map(p=>[p.key,initialEntry(p)])))
-  const [note,setNote]=useState(''); const [ruleCode,setRuleCode]=useState(game.presetCode==='trex-complex'?'COMPLEX':'KING')
-  const [bidderTeam,setBidderTeam]=useState(participants[0]?.teamNumber||1); const [contractBid,setContractBid]=useState(7); const [contractTricks,setContractTricks]=useState(7)
+  const initialEntry=p=>({points:0,bid:min400Bid(scoringGame,p),made:true,kingHearts:0,queens:0,diamonds:0,tricks:0,finishPosition:participants.indexOf(p)+1,cardPoints:0,bonusPoints:0,basras:0,majority:false})
+  const savedEntry=p=>initialRequest?.scores?.find(score=>game.scoreMode==='TEAM'?Number(score.teamNumber)===Number(p.teamNumber):score.playerId===p.playerIds[0])
+  const [entries,setEntries]=useState(Object.fromEntries(participants.map(p=>[p.key,{...initialEntry(p),...savedEntry(p)}])))
+  const [note,setNote]=useState(initialRequest?.note||''); const [ruleCode,setRuleCode]=useState(initialRequest?.ruleCode||(game.presetCode==='trex-complex'?'COMPLEX':'KING'))
+  const [bidderTeam,setBidderTeam]=useState(initialRequest?.bidderTeam??participants[0]?.teamNumber??1); const [contractBid,setContractBid]=useState(initialRequest?.bid??7); const [contractTricks,setContractTricks]=useState(initialRequest?.tricks??7)
   const [validation,setValidation]=useState({ok:false,error:null})
   const field=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value===''?'':Number(value)}})
   const toggle=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value}})
@@ -85,15 +91,15 @@ function RoundModal({game,t,ar,onClose,onSave,busy}) {
   }))
   const roundRequest={note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),scores:scoreInputs}
   const requestKey=JSON.stringify(roundRequest)
-  useEffect(()=>{let active=true;setValidation({ok:false,error:null});evaluateRound(game,roundRequest).then(()=>{if(active)setValidation({ok:true,error:null})}).catch(error=>{if(active)setValidation({ok:false,error:error.message})});return()=>{active=false}},[game,requestKey])
+  useEffect(()=>{let active=true;setValidation({ok:false,error:null});evaluateRound(scoringGame,roundRequest).then(()=>{if(active)setValidation({ok:true,error:null})}).catch(error=>{if(active)setValidation({ok:false,error:error.message})});return()=>{active=false}},[scoringGame,requestKey])
   const submit=e=>{e.preventDefault();if(validation.ok)onSave(roundRequest)}
-  const helper=roundHelper(game,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks},ar)
-  return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="round-modal"><div className="modal-head"><div><span className="eyebrow green">{t.round} {game.roundCount+1}{game.roundLimit?` / ${game.roundLimit}`:''}</span><h2>{roundTitle(game,ar)}</h2></div><button onClick={onClose}><X size={22}/></button></div><form onSubmit={submit}>
+  const helper=roundHelper(scoringGame,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks},ar)
+  return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="round-modal"><div className="modal-head"><div><span className="eyebrow green">{t.round} {round?.roundNumber??game.roundCount+1}{game.roundLimit?` / ${game.roundLimit}`:''}</span><h2>{round?(ar?'تعديل التوزيعة':'Edit hand'):roundTitle(game,ar)}</h2></div><button onClick={onClose}><X size={22}/></button></div><form onSubmit={submit}>
     <div className={`rule-helper ${validation.ok?'ready':'waiting'}`}><strong>{helper.title}</strong><span>{helper.text}</span>{validation.error&&<small>{validation.error}</small>}</div>
-    {(game.presetCode==='trex'||game.presetCode==='trex-complex')&&<label className="contract-picker">{ar?'العقد':'Contract'}<select value={ruleCode} onChange={e=>setRuleCode(e.target.value)}>{trexContracts(game.presetCode,ar).map(c=><option key={c.code} value={c.code} disabled={game.rounds.filter(r=>r.ruleCode===c.code).length>=4}>{c.label}</option>)}</select></label>}
+    {(game.presetCode==='trex'||game.presetCode==='trex-complex')&&<label className="contract-picker">{ar?'العقد':'Contract'}<select value={ruleCode} onChange={e=>setRuleCode(e.target.value)}>{trexContracts(game.presetCode,ar).map(c=><option key={c.code} value={c.code} disabled={game.rounds.filter(r=>r.id!==round?.id&&r.ruleCode===c.code).length>=4}>{c.label}</option>)}</select></label>}
     {game.presetCode==='tarneeb'&&<div className="contract-grid"><label>{ar?'الفريق الطالب':'Bidder team'}<select value={bidderTeam} onChange={e=>setBidderTeam(Number(e.target.value))}>{participants.map(p=><option key={p.key} value={p.teamNumber}>{p.name}</option>)}</select></label><label>{ar?'الطلب':'Bid'}<input type="number" min="7" max="13" value={contractBid} onChange={e=>setContractBid(Number(e.target.value))}/></label><label>{ar?'الأكلات المأخوذة':'Tricks won'}<input type="number" min="0" max="13" value={contractTricks} onChange={e=>setContractTricks(Number(e.target.value))}/></label></div>}
-    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={game} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks}/>)}</div>
-    <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!validation.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{t.saveRound}</>}</button></div>
+    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={scoringGame} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks}/>)}</div>
+    <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!validation.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{round?(ar?'حفظ التعديل':'Save changes'):t.saveRound}</>}</button></div>
   </form></div></div>
 }
 
@@ -136,7 +142,32 @@ function roundHelper(game,participants,entries,state,ar) {
 }
 
 const roundTitle=(game,ar)=>game.presetCode==='400'?(ar?'سجّل الطلب والنتيجة':'Record bids and results'):game.presetCode==='tarneeb'?(ar?'سجّل الطلب والأكلات':'Record contract and tricks'):game.presetCode.startsWith('trex')?(ar?'سجّل عقد تركس':'Score a Trex contract'):ar?'أضف توزيعة':'Add hand'
-const standingTotal=(game,p)=>game.standings.find(s=>s.playerIds?.includes(p.playerIds[0]))?.total||0
+function gameBeforeRound(game,round){
+  const base=structuredClone(game)
+  for(const player of base.players){
+    const standing=base.standings.find(item=>item.playerIds?.includes(player.id))
+    player.totalScore=base.scoreMode==='TEAM'&&standing?.playerIds?.[0]!==player.id?0:standing?.total||0
+  }
+  for(const savedRound of base.rounds.filter(item=>item.roundNumber>=round.roundNumber)){
+    for(const score of savedRound.scores){
+      const player=base.scoreMode==='TEAM'
+        ? base.players.find(item=>`team-${item.teamNumber}`===score.key)
+        : base.players.find(item=>item.id===score.key)
+      if(player)player.totalScore-=score.points
+    }
+  }
+  base.roundCount=round.roundNumber-1
+  base.rounds=base.rounds.filter(item=>item.roundNumber<round.roundNumber)
+  base.status='ACTIVE'
+  base.standings=standingsFromPlayers(base)
+  return base
+}
+function standingsFromPlayers(game){
+  const groups=new Map()
+  for(const player of game.players){const key=game.scoreMode==='TEAM'?`team-${player.teamNumber}`:player.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(player)}
+  return [...groups].map(([key,members])=>({key,name:members.map(item=>item.name).join(' & '),playerIds:members.map(item=>item.id),teamNumber:members[0].teamNumber,total:members.reduce((sum,item)=>sum+item.totalScore,0)})).sort((a,b)=>game.scoreDirection==='HIGH_WINS'?b.total-a.total:a.total-b.total)
+}
+const standingTotal=(game,p)=>{const player=game.players.find(item=>item.id===p.playerIds[0]);return Number.isFinite(player?.totalScore)?player.totalScore:game.standings.find(s=>s.playerIds?.includes(p.playerIds[0]))?.total||0}
 const min400Bid=(game,p)=>{const total=standingTotal(game,p);return total>=50?5:total>=40?4:total>=30?3:2}
 const fourHundredValue=(bid,total)=>Number(bid)===13?41:Number(bid)>=5&&Number(bid)<=6&&total>=30?Number(bid):({2:2,3:3,4:4,5:10,6:12,7:14,8:16,9:27,10:30,11:33,12:36}[Number(bid)]||0)
 const trexContracts=(preset,ar)=>preset==='trex-complex'?[{code:'COMPLEX',label:ar?'كومبلكس':'Complex'},{code:'TREX',label:ar?'تركس':'Trex'}]:[{code:'KING',label:ar?'ملك القلوب':'King of Hearts'},{code:'QUEENS',label:ar?'البنات':'Queens'},{code:'DIAMONDS',label:ar?'الديناري':'Diamonds'},{code:'COLLECTIONS',label:ar?'الأكلات':'Collections'},{code:'TREX',label:ar?'تركس':'Trex'}]

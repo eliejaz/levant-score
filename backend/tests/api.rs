@@ -72,6 +72,24 @@ async fn auth_game_round_validation_and_delete_work_end_to_end(pool: sqlx::PgPoo
     assert_eq!(games.1["items"][0]["standings"][1]["total"], -8);
     assert_eq!(games.1["stats"]["allTimeRounds"], 1);
 
+    let round_id = round.1["round"]["id"].as_str().unwrap();
+    let edited = send(
+        &app,
+        "PATCH",
+        &format!("/api/games/{id}/rounds/{round_id}"),
+        Some(&token),
+        Some(json!({
+            "bidderTeam":1, "bid":7, "tricks":8,
+            "scores":[{"teamNumber":1},{"teamNumber":2}]
+        })),
+    )
+    .await;
+    assert_eq!(edited.0, StatusCode::OK);
+    assert_eq!(edited.1["roundCount"], 1);
+    assert_eq!(edited.1["standings"][0]["total"], 8);
+    assert_eq!(edited.1["standings"][1]["total"], 0);
+    assert_eq!(edited.1["rounds"][0]["inputData"]["bid"], 7);
+
     let deleted = send(
         &app,
         "DELETE",

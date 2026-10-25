@@ -1,4 +1,4 @@
-const CACHE='levant-score-local-v2'
+const CACHE='levant-score-local-v3'
 const SHELL=['/','/index.html','/manifest.webmanifest','/favicon.svg','/game_rules.wasm']
 
 self.addEventListener('install',event=>{

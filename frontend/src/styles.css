@@ -68,6 +68,7 @@
 @media(max-width:620px){.game-card-delete{width:40px;height:40px;top:10px;inset-inline-end:10px}.game-card-wrap .game-card-top{padding-inline-end:45px}}
 
 .history-load-more{width:100%;margin-top:12px}
+.edit-round-button{width:100%;margin-top:7px;border:1px solid #d9dfda;background:#fff;color:var(--green);border-radius:9px;padding:9px 12px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:11px;font-weight:800}.edit-round-button:hover{border-color:var(--green);background:#f2f7f4}.legacy-round-note{display:block;border-top:1px solid #e7e9e5;margin-top:7px;padding:9px 0 2px;color:#8b9691;font-size:10px}
 .brand-link{display:flex;align-items:center}.local-mode-badge{display:inline-flex;align-items:center;margin-inline-start:10px;padding:4px 8px;border:1px solid rgba(255,255,255,.32);border-radius:999px;color:#fff;font-family:"DM Sans",sans-serif;font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle}
 .rule-helper small{font-size:10px;line-height:1.4;color:#9a5d18}
 @media(max-width:720px){.local-mode-badge{font-size:.58rem;padding:3px 6px;margin-inline-start:7px}}
