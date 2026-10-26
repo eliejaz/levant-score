@@ -44,6 +44,7 @@ pub struct ScoreInput {
     pub basras: Option<i32>,
     pub majority: Option<bool>,
     pub cards_left: Option<i32>,
+    pub jokers: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -56,6 +57,8 @@ pub struct AddRoundRequest {
     pub tricks: Option<i32>,
     pub leekha_shown_by_player_id: Option<Uuid>,
     pub leekha_captured_by_player_id: Option<Uuid>,
+    pub quatorze_winner_player_id: Option<Uuid>,
+    pub quatorze_all_at_once: Option<bool>,
     pub scores: Vec<ScoreInput>,
 }
 

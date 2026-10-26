@@ -38,6 +38,8 @@ pub struct RoundRequest {
     pub tricks: Option<i32>,
     pub leekha_shown_by_player_id: Option<String>,
     pub leekha_captured_by_player_id: Option<String>,
+    pub quatorze_winner_player_id: Option<String>,
+    pub quatorze_all_at_once: Option<bool>,
     pub scores: Vec<ScoreInput>,
 }
 
@@ -59,6 +61,7 @@ pub struct ScoreInput {
     pub basras: Option<i32>,
     pub majority: Option<bool>,
     pub cards_left: Option<i32>,
+    pub jokers: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -172,6 +175,7 @@ fn calculate(
             + required(input.bonus_points, "Enter declarations and bonuses")?),
         "hand" => required(input.card_points, "Enter each player's cards left"),
         "chinese" => calculate_chinese(input),
+        "quatorze" => calculate_quatorze(input, request, player),
         _ => required(input.points, "Enter a score"),
     }
 }
@@ -197,6 +201,7 @@ fn validate(game: &GameState, request: &RoundRequest, points: &[i32]) -> Result<
             )
         }
         "chinese" => validate_chinese(request),
+        "quatorze" => validate_quatorze(game, request),
         _ => require(
             points.iter().all(|point| (-9999..=9999).contains(point)),
             "Score is outside the supported range",
@@ -317,6 +322,67 @@ fn validate_chinese(request: &RoundRequest) -> Result<(), String> {
         cards.iter().filter(|cards| **cards == 0).count() == 1,
         "Choose exactly one player who finished their cards first",
     )
+}
+
+fn calculate_quatorze(
+    input: &ScoreInput,
+    request: &RoundRequest,
+    player: &PlayerState,
+) -> Result<i32, String> {
+    if request.quatorze_winner_player_id.as_deref() == Some(player.id.as_str()) {
+        return Ok(if request.quatorze_all_at_once == Some(true) {
+            -60
+        } else {
+            -30
+        });
+    }
+    let cards = required(
+        input.card_points,
+        "Enter every opponent's remaining-card value",
+    )?;
+    let jokers = value(input.jokers);
+    let penalty = cards + jokers * 25;
+    Ok(if request.quatorze_all_at_once == Some(true) {
+        penalty * 2
+    } else {
+        penalty
+    })
+}
+
+fn validate_quatorze(game: &GameState, request: &RoundRequest) -> Result<(), String> {
+    let winner = request
+        .quatorze_winner_player_id
+        .as_deref()
+        .ok_or_else(|| "Choose who went out first".to_owned())?;
+    require(
+        game.players.iter().any(|player| player.id == winner),
+        "Choose a valid Quatorze winner",
+    )?;
+    let mut jokers = 0;
+    for score in &request.scores {
+        if score.player_id.as_deref() == Some(winner) {
+            continue;
+        }
+        let cards = required(
+            score.card_points,
+            "Enter every opponent's remaining-card value",
+        )?;
+        let player_jokers = value(score.jokers);
+        require(
+            (0..=140).contains(&cards),
+            "Remaining-card value must be between 0 and 140",
+        )?;
+        require(
+            (0..=2).contains(&player_jokers),
+            "A player can hold at most 2 Jokers",
+        )?;
+        require(
+            cards > 0 || player_jokers > 0,
+            "Every opponent must have a remaining-card penalty",
+        )?;
+        jokers += player_jokers;
+    }
+    require(jokers <= 2, "Quatorze uses at most 2 Jokers in total")
 }
 
 fn calculate_400(input: &ScoreInput, player: &PlayerState) -> Result<i32, String> {
@@ -856,7 +922,7 @@ mod wasm {
 
     #[no_mangle]
     pub extern "C" fn engine_version() -> u32 {
-        3
+        4
     }
 
     #[no_mangle]
@@ -1009,6 +1075,52 @@ mod tests {
         assert_eq!(
             evaluate_round(&game, &no_winner).unwrap_err(),
             "Choose exactly one player who finished their cards first"
+        );
+    }
+
+    #[test]
+    fn quatorze_scores_winner_jokers_and_all_at_once_finish() {
+        let game = sample(
+            "quatorze",
+            "INDIVIDUAL",
+            "LOSE_AT_OR_ABOVE",
+            Some(201),
+            None,
+        );
+        let request = RoundRequest {
+            quatorze_winner_player_id: Some("p0".into()),
+            scores: game
+                .players
+                .iter()
+                .zip([(0, 0), (21, 0), (0, 1), (0, 1)])
+                .map(|(player, (card_points, jokers))| ScoreInput {
+                    player_id: Some(player.id.clone()),
+                    card_points: Some(card_points),
+                    jokers: Some(jokers),
+                    ..default_score()
+                })
+                .collect(),
+            ..RoundRequest::default()
+        };
+        assert_eq!(
+            evaluate_round(&game, &request)
+                .unwrap()
+                .scores
+                .iter()
+                .map(|score| score.points)
+                .collect::<Vec<_>>(),
+            vec![-30, 21, 25, 25]
+        );
+        let mut all_at_once = request;
+        all_at_once.quatorze_all_at_once = Some(true);
+        assert_eq!(
+            evaluate_round(&game, &all_at_once)
+                .unwrap()
+                .scores
+                .iter()
+                .map(|score| score.points)
+                .collect::<Vec<_>>(),
+            vec![-60, 42, 50, 50]
         );
     }
 
@@ -1204,6 +1316,7 @@ mod tests {
                     | "leekha-team-shown"
                     | "hand"
                     | "chinese"
+                    | "quatorze"
             ) {
                 "LOW_WINS".into()
             } else {

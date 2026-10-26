@@ -47,6 +47,26 @@ test('Chinese calculates penalties from cards left and plays to 100',async()=>{
   await assert.rejects(()=>games.addRound(game.id,{scores:game.players.map(player=>({playerId:player.id,cardsLeft:2}))}),/exactly one player/)
 })
 
+test('Quatorze scores normal and all-at-once finishes automatically',async()=>{
+  let game=await games.createGame(createRequest('quatorze'))
+  assert.equal(game.targetScore,201)
+  let result=await games.addRound(game.id,{
+    quatorzeWinnerPlayerId:game.players[0].id,
+    quatorzeAllAtOnce:false,
+    scores:game.players.map((player,index)=>({playerId:player.id,cardPoints:[0,21,0,0][index],jokers:[0,0,1,1][index]})),
+  })
+  assert.deepEqual(result.round.scores.map(item=>item.points),[-30,21,25,25])
+  await games.deleteGame(game.id)
+
+  game=await games.createGame(createRequest('quatorze'))
+  result=await games.addRound(game.id,{
+    quatorzeWinnerPlayerId:game.players[0].id,
+    quatorzeAllAtOnce:true,
+    scores:game.players.map((player,index)=>({playerId:player.id,cardPoints:[0,21,0,0][index],jokers:[0,0,1,1][index]})),
+  })
+  assert.deepEqual(result.round.scores.map(item=>item.points),[-60,42,50,50])
+})
+
 test('400 uses bid values and made or missed signs',async()=>{
   const game=await games.createGame(createRequest('400'))
   const bids=[

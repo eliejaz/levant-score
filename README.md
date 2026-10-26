@@ -1,6 +1,6 @@
 # Levant Score · سهرة
 
-A bilingual, mobile-first scorekeeper for Lebanese and Arab card nights. It ships with presets for Leekha (solo and teams), 400, Tarneeb, Chinese, Trex/Complex, Belote, Basra, and Hand. The custom preset covers any house game without changing code.
+A bilingual, mobile-first scorekeeper for Lebanese and Arab card nights. It ships with presets for Leekha (solo and teams), 400, Tarneeb, Chinese, Quatorze (14), Trex/Complex, Belote, Basra, and Hand. The custom preset covers any house game without changing code.
 
 ## Stack
 
@@ -127,6 +127,7 @@ DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --workspac
 - Use rule-aware round forms with live helpers and server-side validation
 - Keep Leekha team scores per player, with standard 101-point play or the shown-card double/triple variant to 201
 - Count Chinese automatically from cards left, including its ×1/×2/×3/40 penalty ladder and 100-point loss rule
+- Score Quatorze automatically from the winner, remaining-card values, Jokers, and normal or all-at-once finish
 - Record 400 bids and made/missed results, Tarneeb contracts, and preset-specific card totals
 - See live standings and score history
 - Edit a saved hand; the app replays that hand and all later hands through the rules engine

@@ -48,6 +48,7 @@ mod tests {
             ("400", vec![4]),
             ("tarneeb", vec![4]),
             ("chinese", vec![2, 3, 4]),
+            ("quatorze", vec![2, 3, 4, 5, 6, 7]),
             ("trex", vec![4]),
             ("trex-complex", vec![4]),
             ("belote", vec![4]),
