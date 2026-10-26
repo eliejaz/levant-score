@@ -2,12 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { localGameRepository as games } from '../src/lib/localGameRepository.js'
+import { calculateRoundTotals } from '../src/lib/roundHistory.js'
 
 globalThis.localStorage=memoryStorage()
 const rulesWasm=readFileSync(new URL('../public/game_rules.wasm',import.meta.url))
 globalThis.fetch=async()=>new Response(rulesWasm,{status:200,headers:{'content-type':'application/wasm'}})
 
 test.beforeEach(()=>localStorage.clear())
+
+test('round history reconstructs every running score after each hand',()=>{
+  const game={standings:[{key:'p1',total:15},{key:'p2',total:2}],rounds:[
+    {id:'r2',roundNumber:2,scores:[{key:'p1',points:5},{key:'p2',points:-3}]},
+    {id:'r1',roundNumber:1,scores:[{key:'p1',points:10},{key:'p2',points:5}]},
+  ]}
+  assert.deepEqual(calculateRoundTotals(game),{r2:{p1:15,p2:2},r1:{p1:10,p2:5}})
+})
 
 test('Leekha rejects partial hands and scores every player individually',async()=>{
   const game=await games.createGame(createRequest('leekha-team'))
