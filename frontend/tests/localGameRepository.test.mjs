@@ -18,6 +18,35 @@ test('Leekha rejects partial hands and scores every player individually',async()
   await assert.rejects(()=>games.addRound(game.id,{scores:scores.map(score=>({...score,points:1}))}),/exactly 36 points/)
 })
 
+test('shown Leekha adds the double or triple bonus automatically',async()=>{
+  let game=await games.createGame(createRequest('leekha-solo-shown'))
+  assert.equal(game.targetScore,201)
+  let result=await games.addRound(game.id,{
+    leekhaShownByPlayerId:game.players[0].id,
+    leekhaCapturedByPlayerId:game.players[1].id,
+    scores:game.players.map((player,index)=>({playerId:player.id,points:[5,13,10,8][index]})),
+  })
+  assert.deepEqual(result.round.scores.map(item=>item.points),[5,26,10,8])
+  await games.deleteGame(game.id)
+
+  game=await games.createGame(createRequest('leekha-team-shown'))
+  result=await games.addRound(game.id,{
+    leekhaShownByPlayerId:game.players[0].id,
+    leekhaCapturedByPlayerId:game.players[0].id,
+    scores:game.players.map((player,index)=>({playerId:player.id,points:[13,10,8,5][index]})),
+  })
+  assert.equal(result.round.scores[0].points,39)
+})
+
+test('Chinese calculates penalties from cards left and plays to 100',async()=>{
+  const game=await games.createGame(createRequest('chinese'))
+  assert.equal(game.targetScore,100)
+  assert.equal(game.thresholdRule,'LOSE_AT_OR_ABOVE')
+  const result=await games.addRound(game.id,{scores:game.players.map((player,index)=>({playerId:player.id,cardsLeft:[0,4,9,13][index]}))})
+  assert.deepEqual(result.round.scores.map(item=>item.points),[0,4,18,40])
+  await assert.rejects(()=>games.addRound(game.id,{scores:game.players.map(player=>({playerId:player.id,cardsLeft:2}))}),/exactly one player/)
+})
+
 test('400 uses bid values and made or missed signs',async()=>{
   const game=await games.createGame(createRequest('400'))
   const bids=[
@@ -103,7 +132,7 @@ test('editing a saved hand replays its scores and standings',async()=>{
 })
 
 function createRequest(code){
-  const team=['400','tarneeb','leekha-team','basra','belote'].includes(code)
+  const team=['400','tarneeb','leekha-team','leekha-team-shown','basra','belote'].includes(code)
   const count=code==='custom'?2:4
   return {title:code,presetCode:code,players:Array.from({length:count},(_,index)=>({name:`P${index+1}`,teamNumber:team?(index%2)+1:null}))}
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Flag, History, Minus, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Trophy, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Crown, Eye, Flag, History, Minus, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Trophy, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
@@ -70,33 +70,37 @@ function RoundModal({game,round,t,ar,onClose,onSave,busy}) {
   const participants=game.scoreMode==='TEAM'
     ? game.standings.slice().sort((a,b)=>(a.teamNumber||0)-(b.teamNumber||0))
     : game.players.map(p=>({key:p.id,name:p.name,playerIds:[p.id],teamNumber:p.teamNumber}))
-  const initialEntry=p=>({points:0,bid:min400Bid(scoringGame,p),made:true,kingHearts:0,queens:0,diamonds:0,tricks:0,finishPosition:participants.indexOf(p)+1,cardPoints:0,bonusPoints:0,basras:0,majority:false})
+  const initialEntry=p=>({points:0,bid:min400Bid(scoringGame,p),made:true,kingHearts:0,queens:0,diamonds:0,tricks:0,finishPosition:participants.indexOf(p)+1,cardPoints:0,bonusPoints:0,basras:0,majority:false,cardsLeft:''})
   const savedEntry=p=>initialRequest?.scores?.find(score=>game.scoreMode==='TEAM'?Number(score.teamNumber)===Number(p.teamNumber):score.playerId===p.playerIds[0])
   const [entries,setEntries]=useState(Object.fromEntries(participants.map(p=>[p.key,{...initialEntry(p),...savedEntry(p)}])))
   const [note,setNote]=useState(initialRequest?.note||''); const [ruleCode,setRuleCode]=useState(initialRequest?.ruleCode||(game.presetCode==='trex-complex'?'COMPLEX':'KING'))
   const [bidderTeam,setBidderTeam]=useState(initialRequest?.bidderTeam??participants[0]?.teamNumber??1); const [contractBid,setContractBid]=useState(initialRequest?.bid??7); const [contractTricks,setContractTricks]=useState(initialRequest?.tricks??7)
+  const [leekhaShown,setLeekhaShown]=useState(Boolean(initialRequest?.leekhaShownByPlayerId)); const [leekhaShownBy,setLeekhaShownBy]=useState(initialRequest?.leekhaShownByPlayerId??participants[0]?.playerIds[0]??''); const [leekhaCapturedBy,setLeekhaCapturedBy]=useState(initialRequest?.leekhaCapturedByPlayerId??participants[0]?.playerIds[0]??'')
   const [validation,setValidation]=useState({ok:false,error:null,result:null})
-  const field=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value===''?'':Number(value)}})
-  const toggle=(key,name,value)=>setEntries({...entries,[key]:{...entries[key],[name]:value}})
+  const field=(key,name,value)=>setEntries(current=>({...current,[key]:{...current[key],[name]:value===''?'':Number(value)}}))
+  const toggle=(key,name,value)=>setEntries(current=>({...current,[key]:{...current[key],[name]:value}}))
+  const chooseChineseWinner=key=>setEntries(current=>Object.fromEntries(Object.entries(current).map(([entryKey,entry])=>[entryKey,{...entry,cardsLeft:entryKey===key?0:Number(entry.cardsLeft)===0?'':entry.cardsLeft}])))
   const scoreInputs=participants.map(p=>({
     ...(game.scoreMode==='TEAM'?{teamNumber:p.teamNumber}:{playerId:p.playerIds[0]}),
     ...entries[p.key], points:Number(entries[p.key].points||0)
   }))
-  const roundRequest={note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),scores:scoreInputs}
+  const roundRequest={note,ruleCode,bidderTeam,bid:Number(contractBid),tricks:Number(contractTricks),leekhaShownByPlayerId:leekhaShown?leekhaShownBy:null,leekhaCapturedByPlayerId:leekhaShown?leekhaCapturedBy:null,scores:scoreInputs}
   const requestKey=JSON.stringify(roundRequest)
   useEffect(()=>{let active=true;setValidation({ok:false,error:null,result:null});evaluateRound(scoringGame,roundRequest).then(result=>{if(active)setValidation({ok:true,error:null,result})}).catch(error=>{if(active)setValidation({ok:false,error:error.message,result:null})});return()=>{active=false}},[scoringGame,requestKey])
   const submit=e=>{e.preventDefault();if(validation.ok)onSave(roundRequest)}
-  const helper=roundHelper(scoringGame,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks},ar)
+  const helper=roundHelper(scoringGame,participants,entries,{ruleCode,bidderTeam,contractBid,contractTricks,leekhaShown,leekhaShownBy,leekhaCapturedBy},ar)
   return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="round-modal"><div className="modal-head"><div><span className="eyebrow green">{t.round} {round?.roundNumber??game.roundCount+1}{game.roundLimit?` / ${game.roundLimit}`:''}</span><h2>{round?(ar?'تعديل التوزيعة':'Edit hand'):roundTitle(game,ar)}</h2></div><button onClick={onClose}><X size={22}/></button></div><form onSubmit={submit}>
     <div className={`rule-helper ${validation.ok?'ready':'waiting'}`}><strong>{helper.title}</strong><span>{helper.text}</span>{validation.error&&<small>{validation.error}</small>}</div>
+    {isShownLeekha(game.presetCode)&&<ShownLeekhaControls participants={participants} shown={leekhaShown} shownBy={leekhaShownBy} capturedBy={leekhaCapturedBy} setShown={setLeekhaShown} setShownBy={setLeekhaShownBy} setCapturedBy={setLeekhaCapturedBy} ar={ar}/>}
+    {game.presetCode==='chinese'&&<ChineseGuide ar={ar}/>}
     {(game.presetCode==='trex'||game.presetCode==='trex-complex')&&<label className="contract-picker">{ar?'العقد':'Contract'}<select value={ruleCode} onChange={e=>setRuleCode(e.target.value)}>{trexContracts(game.presetCode,ar).map(c=><option key={c.code} value={c.code} disabled={game.rounds.filter(r=>r.id!==round?.id&&r.ruleCode===c.code).length>=4}>{c.label}</option>)}</select></label>}
     {game.presetCode==='tarneeb'&&<div className="contract-grid"><label>{ar?'الفريق الطالب':'Bidder team'}<select value={bidderTeam} onChange={e=>setBidderTeam(Number(e.target.value))}>{participants.map(p=><option key={p.key} value={p.teamNumber}>{p.name}</option>)}</select></label><label>{ar?'الطلب':'Bid'}<ClearingNumberInput min="7" max="13" value={contractBid} onChange={value=>setContractBid(value===''?'':Number(value))}/></label><label>{ar?'الأكلات المأخوذة':'Tricks won'}<ClearingNumberInput min="0" max="13" value={contractTricks} onChange={value=>setContractTricks(value===''?'':Number(value))}/></label></div>}
-    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={scoringGame} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks} preview={validation.result?.scores.find(score=>p.playerIds.includes(score.playerId))}/>)}</div>
+    <div className="score-inputs">{participants.map((p,i)=><RuleEntry key={p.key} game={scoringGame} participant={p} index={i} entry={entries[p.key]} entries={entries} ruleCode={ruleCode} ar={ar} field={field} toggle={toggle} bidderTeam={bidderTeam} contractBid={contractBid} contractTricks={contractTricks} leekhaShown={leekhaShown} leekhaShownBy={leekhaShownBy} leekhaCapturedBy={leekhaCapturedBy} chooseChineseWinner={chooseChineseWinner} preview={validation.result?.scores.find(score=>p.playerIds.includes(score.playerId))}/>)}</div>
     <label className="note-field">{t.note}<input value={note} onChange={e=>setNote(e.target.value)} maxLength="240" placeholder={t.noteHint}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>{ar?'إلغاء':'Cancel'}</button><button className="primary-button" disabled={busy||!validation.ok}>{busy?<span className="button-spinner"/>:<><Check size={18}/>{round?(ar?'حفظ التعديل':'Save changes'):t.saveRound}</>}</button></div>
   </form></div></div>
 }
 
-function RuleEntry({game,participant:p,index,entry,entries,ruleCode,ar,field,toggle,bidderTeam,contractBid,contractTricks,preview}) {
+function RuleEntry({game,participant:p,index,entry,entries,ruleCode,ar,field,toggle,bidderTeam,contractBid,contractTricks,leekhaShown,leekhaShownBy,leekhaCapturedBy,chooseChineseWinner,preview}) {
   const id=p.key; const preset=game.presetCode
   let controls
   if(preset==='400') { const score=preview?.points??fourHundredPreview(entry.bid,entry.made,standingTotal(game,p)); controls=<><label className="compact-input">{ar?'الطلب':'Bid'}<ClearingNumberInput min={min400Bid(game,p)} max="13" value={entry.bid} onChange={value=>field(id,'bid',value)}/></label><div className="made-toggle"><button type="button" className={entry.made?'active':''} onClick={()=>toggle(id,'made',true)}>✓ {ar?'أخذ':'Made'}</button><button type="button" className={!entry.made?'missed':''} onClick={()=>toggle(id,'made',false)}>− {ar?'كسر':'Missed'}</button></div><b className={`score-preview ${score<0?'negative':''}`}>{score>0?'+':''}{score}</b></> }
@@ -105,9 +109,28 @@ function RuleEntry({game,participant:p,index,entry,entries,ruleCode,ar,field,tog
   else if(preset==='basra') controls=<><label className="compact-input">{ar?'نقاط الورق':'Card pts'}<ClearingNumberInput min="0" max="13" value={entry.cardPoints} onChange={value=>field(id,'cardPoints',value)}/></label><label className="compact-input">{ar?'باصرة':'Basras'}<ClearingNumberInput min="0" value={entry.basras} onChange={value=>field(id,'basras',value)}/></label><button type="button" className={`majority-button ${entry.majority?'active':''}`} onClick={()=>toggle(id,'majority',!entry.majority)}>+3 {ar?'أكثر ورق':'Most cards'}</button></>
   else if(preset==='belote') controls=<><label className="compact-input">{ar?'نقاط الورق':'Card pts'}<ClearingNumberInput min="0" max="162" value={entry.cardPoints} onChange={value=>field(id,'cardPoints',value)}/></label><label className="compact-input">{ar?'إعلانات':'Bonuses'}<ClearingNumberInput min="0" max="500" value={entry.bonusPoints} onChange={value=>field(id,'bonusPoints',value)}/></label></>
   else if(preset==='hand') controls=<NumberControl value={entry.cardPoints} min={0} max={300} onChange={v=>field(id,'cardPoints',v)}/>
-  else if(preset.startsWith('leekha')) { const available=Math.max(0,36-Object.entries(entries).filter(([key])=>key!==id).reduce((sum,[,value])=>sum+Number(value.points||0),0)); controls=<NumberControl value={entry.points} min={0} max={available} onChange={v=>field(id,'points',v===''?'':Math.max(0,Math.min(available,Number(v))))}/> }
+  else if(preset==='chinese') controls=<ChinesePlayerControl id={id} entry={entry} ar={ar} field={field} chooseWinner={chooseChineseWinner}/>
+  else if(preset.startsWith('leekha')) { const available=Math.max(0,36-Object.entries(entries).filter(([key])=>key!==id).reduce((sum,[,value])=>sum+Number(value.points||0),0)); const bonus=leekhaShown&&leekhaCapturedBy===p.playerIds[0]?(leekhaShownBy===leekhaCapturedBy?26:13):0; controls=<><NumberControl value={entry.points} min={0} max={available} onChange={v=>field(id,'points',v===''?'':Math.max(0,Math.min(available,Number(v))))}/>{bonus>0&&<b className="score-preview leekha-bonus-preview">{Number(entry.points||0)+bonus}<small>+{bonus}</small></b>}</> }
   else controls=<NumberControl value={entry.points} min={-9999} max={9999} onChange={v=>field(id,'points',v)}/>
   return <div className="score-input-row rule-entry"><span className={`score-player-dot dot-${index}`}>{initials(p.name)}</span><div className="rule-player"><strong>{p.name}</strong>{game.teamMode&&<small>{ar?'فريق':'Team'} {p.teamNumber}</small>}</div><div className="rule-controls">{controls}</div></div>
+}
+
+function ShownLeekhaControls({participants,shown,shownBy,capturedBy,setShown,setShownBy,setCapturedBy,ar}) {
+  const bonus=shownBy===capturedBy?26:13
+  return <section className={`shown-leekha-card ${shown?'active':''}`}>
+    <div className="shown-leekha-head"><span><Eye size={18}/></span><div><strong>{ar?'هل تم كشف ورقة الليخة؟':'Was the Leekha card shown?'}</strong><small>{ar?'سجّل ٣٦ نقطة عادية؛ نضيف الدبل أو ×٣ تلقائياً.':'Enter the normal 36 points; the bonus is added automatically.'}</small></div><div className="shown-choice"><button type="button" className={!shown?'active':''} onClick={()=>setShown(false)}>{ar?'لا':'No'}</button><button type="button" className={shown?'active':''} onClick={()=>setShown(true)}>{ar?'نعم':'Yes'}</button></div></div>
+    {shown&&<><div className="shown-leekha-selects"><label>{ar?'مين كشفها؟':'Who showed it?'}<select value={shownBy} onChange={event=>setShownBy(event.target.value)}>{participants.map(player=><option key={player.key} value={player.playerIds[0]}>{player.name}</option>)}</select></label><label>{ar?'مين أكلها؟':'Who captured it?'}<select value={capturedBy} onChange={event=>setCapturedBy(event.target.value)}>{participants.map(player=><option key={player.key} value={player.playerIds[0]}>{player.name}</option>)}</select></label></div><div className={`leekha-bonus-callout ${bonus===26?'triple':''}`}><b>{shownBy===capturedBy?'×3':'×2'}</b><span>{bonus===26?(ar?'صاحب الورقة أكلها: نضيف ٢٦ فوق الـ١٣ الأساسية.':'The owner captured it: +26 on top of its base 13.'):(ar?'لاعب آخر أكلها: نضيف ١٣ فوق الـ١٣ الأساسية.':'Another player captured it: +13 on top of its base 13.')}</span></div></>}
+  </section>
+}
+
+function ChineseGuide({ar}) {
+  return <section className="chinese-guide"><p>{ar?'كوّن تركيبات بوكر لتخلّص ورقك. أول لاعب يخلّص يسجّل صفر.':'Build poker hands to empty your cards. The first player out scores zero.'}</p><div className="chinese-suit-order"><strong>{ar?'ترتيب الألوان بالفرنسي':'French suit order'}</strong><span><b>♠</b> Pique <i>›</i> <b className="red">♥</b> Cœur <i>›</i> <b>♣</b> Trèfle <i>›</i> <b className="red">♦</b> Carreau</span></div><div className="chinese-score-ladder"><span><b>1–4</b> ×1</span><span><b>5–9</b> ×2</span><span><b>10–12</b> ×3</span><span><b>13</b> 40 {ar?'نقطة':'pts'}</span></div></section>
+}
+
+function ChinesePlayerControl({id,entry,ar,field,chooseWinner}) {
+  const winner=Number(entry.cardsLeft)===0&&entry.cardsLeft!==''
+  const score=entry.cardsLeft===''?null:chinesePreview(entry.cardsLeft)
+  return <><button type="button" className={`chinese-winner-button ${winner?'active':''}`} onClick={()=>chooseWinner(id)}><Crown size={15}/>{ar?'خلص أول':'First out'}</button>{!winner&&<label className="compact-input chinese-cards-left">{ar?'ورق باقي':'Cards left'}<ClearingNumberInput min="1" max="13" value={entry.cardsLeft} onChange={value=>field(id,'cardsLeft',value)}/></label>}<b className="score-preview chinese-score-preview">{score??'—'}<small>{ar?'نقطة':'pts'}</small></b></>
 }
 
 function NumberControl({value,min,max,onChange}) { const n=Number(value||0); return <div className="number-stepper"><button type="button" disabled={n<=min} onClick={()=>onChange(n-1)}><Minus size={18}/></button><ClearingNumberInput min={min} max={max} value={value} onChange={onChange}/><button type="button" disabled={n>=max} onClick={()=>onChange(n+1)}><Plus size={18}/></button></div> }
@@ -131,17 +154,18 @@ function TrexControls({id,entry,ruleCode,ar,field}) {
 
 function roundHelper(game,participants,entries,state,ar) {
   const values=participants.map(p=>entries[p.key]); const sum=name=>values.reduce((n,v)=>n+Number(v[name]||0),0); const p=game.presetCode
-  if(p.startsWith('leekha')) { const left=36-sum('points'); return {title:ar?'٣٦ نقطة في كل توزيعة':'36 points in every hand',text:left===0?(ar?'تم توزيع كل النقاط — جاهز للحفظ.':'All 36 points are assigned — ready to save.'):(ar?`باقي ${left} نقطة للتوزيع.`:`${left} points still need to be assigned.`)} }
+  if(p.startsWith('leekha')) { const left=36-sum('points'); const bonus=isShownLeekha(p)&&state.leekhaShown?(state.leekhaShownBy===state.leekhaCapturedBy?26:13):0; return {title:isShownLeekha(p)?(ar?'ابدأ بـ٣٦ نقطة عادية':'Start with 36 base points'):(ar?'٣٦ نقطة في كل توزيعة':'36 points in every hand'),text:left===0?(bonus>0?(ar?`تم توزيع الـ٣٦؛ سيضيف التطبيق ${bonus} نقطة لآكل الليخة.`:`All 36 base points are assigned; the app will add a ${bonus}-point shown-card bonus.`):(ar?'تم توزيع كل النقاط — جاهز للحفظ.':'All 36 points are assigned — ready to save.')):(ar?`باقي ${left} نقطة للتوزيع.`:`${left} points still need to be assigned.`)} }
   if(p==='400') { const high=Math.max(...game.standings.map(s=>s.total),0); const needed=high>=50?14:high>=40?13:high>=30?12:11; const slam=values.some(v=>Number(v.bid)===13); return {title:ar?'كل لاعب يطلب ويُحاسب وحده':'Every player bids and scores separately',text:slam?(ar?'طلب ١٣: النجاح يفوز بالمباراة فوراً والفشل يخسرها فوراً.':'Bid 13: making it wins the match immediately; missing it loses immediately.'):(ar?`مجموع الطلب ${sum('bid')} من ${needed} كحد أدنى. النجاح يضيف قيمة الطلب والفشل يطرحها.`:`Total bids: ${sum('bid')} / minimum ${needed}. Made adds the bid value; missed subtracts it.`)} }
   if(p==='tarneeb') return {title:ar?'١٣ أكلة في التوزيعة':'13 tricks in every deal',text:state.contractTricks>=state.contractBid?(ar?'الفريق الطالب نجح؛ تُضاف الأكلات التي أخذها.':'Contract made: the bidder scores its tricks.'):(ar?'الطلب مكسور؛ يُطرح الطلب والخصم يأخذ أكلاته.':'Contract failed: subtract the bid; defenders score their tricks.')}
   if(p==='trex'||p==='trex-complex') { const targets={KING:['K♥',1,'kingHearts'],QUEENS:[ar?'البنات':'Queens',4,'queens'],DIAMONDS:[ar?'الديناري':'Diamonds',13,'diamonds'],COLLECTIONS:[ar?'الأكلات':'Tricks',13,'tricks']}; if(state.ruleCode==='TREX')return {title:ar?'ترتيب فريد من الأول للرابع':'Unique finish order, first through fourth',text:ar?'النقاط: ٢٠٠، ١٥٠، ١٠٠، ٥٠.':'Points: 200, 150, 100, 50.'}; if(state.ruleCode==='COMPLEX')return {title:'Complex: K♥ + Queens + Diamonds + Tricks',text:`K♥ ${sum('kingHearts')}/1 · Q ${sum('queens')}/4 · ♦ ${sum('diamonds')}/13 · ${ar?'أكلات':'tricks'} ${sum('tricks')}/13`}; const [name,target,key]=targets[state.ruleCode];return {title:`${name}: ${sum(key)} / ${target}`,text:ar?'وزّع كل الورق أو الأكلات قبل الحفظ.':'Assign every card or trick before saving.'} }
   if(p==='basra') return {title:ar?'١٣ نقطة ورق + ٣ للأكثر + ١٠ لكل باصرة':'13 card points + 3 majority + 10 per Basra',text:ar?`نقاط الورق: ${sum('cardPoints')} / 13`:`Card points assigned: ${sum('cardPoints')} / 13`}
   if(p==='belote') return {title:ar?'١٦٢ نقطة ورق في كل توزيعة':'162 card points in every deal',text:ar?`الموزّع: ${sum('cardPoints')} / 162. أضف الإعلانات منفصلة.`:`Assigned: ${sum('cardPoints')} / 162. Add declarations separately.`}
   if(p==='hand') return {title:ar?'الفائز يسجّل صفر':'The player who goes out scores zero',text:ar?'أدخل قيمة الورق المتبقي لكل لاعب.':'Enter the value of the cards left in each hand.'}
+  if(p==='chinese') { const winner=participants.find(player=>Number(entries[player.key].cardsLeft)===0&&entries[player.key].cardsLeft!==''); const missing=values.filter(value=>value.cardsLeft==='').length; return {title:winner?(ar?`${winner.name} خلّص ورقه أولاً`:`${winner.name} finished first`):(ar?'اختَر أول لاعب خلّص ورقه':'Choose the first player out'),text:missing?(ar?`أدخل عدد الورق الباقي لـ${missing} من اللاعبين.`:`Enter cards left for ${missing} player${missing===1?'':'s'}.`):(ar?'النقاط محسوبة تلقائياً؛ أول من يصل إلى ١٠٠ يخسر.':'Penalties are calculated automatically; the first player to 100 loses.')} }
   return {title:ar?'قواعد السهرة':'House-rule scoring',text:ar?'هذه اللعبة غير موحّدة؛ أدخلوا فقط القيم المتفق عليها قبل البدء.':'This variant has no single documented score system; use the values agreed before play.'}
 }
 
-const roundTitle=(game,ar)=>game.presetCode==='400'?(ar?'سجّل الطلب والنتيجة':'Record bids and results'):game.presetCode==='tarneeb'?(ar?'سجّل الطلب والأكلات':'Record contract and tricks'):game.presetCode.startsWith('trex')?(ar?'سجّل عقد تركس':'Score a Trex contract'):ar?'أضف توزيعة':'Add hand'
+const roundTitle=(game,ar)=>game.presetCode==='400'?(ar?'سجّل الطلب والنتيجة':'Record bids and results'):game.presetCode==='tarneeb'?(ar?'سجّل الطلب والأكلات':'Record contract and tricks'):game.presetCode==='chinese'?(ar?'احسب الورق الباقي':'Count cards left'):game.presetCode.startsWith('trex')?(ar?'سجّل عقد تركس':'Score a Trex contract'):ar?'أضف توزيعة':'Add hand'
 function gameBeforeRound(game,round){
   const base=structuredClone(game)
   for(const player of base.players){
@@ -166,6 +190,8 @@ const standingTotal=(game,p)=>{const player=game.players.find(item=>item.id===p.
 const min400Bid=(game,p)=>{const total=standingTotal(game,p);return total>=50?5:total>=40?4:total>=30?3:2}
 const fourHundredPreview=(bid,made,total)=>{const value=Number(bid)===13?41:Number(bid)>=5&&Number(bid)<=6&&total>=30?Number(bid):({2:2,3:3,4:4,5:10,6:12,7:14,8:16,9:27,10:30,11:33,12:36}[Number(bid)]||0);return made?value:-value}
 const tarneebPreview=(team,bidder,bid,tricks)=>Number(team)===Number(bidder)?(tricks>=bid?tricks:-bid):(tricks>=bid?0:13-tricks)
+const chinesePreview=cards=>{const count=Number(cards);return count===13?40:count>=10?count*3:count>=5?count*2:Math.max(0,count)}
+const isShownLeekha=code=>code==='leekha-solo-shown'||code==='leekha-team-shown'
 const trexContracts=(preset,ar)=>preset==='trex-complex'?[{code:'COMPLEX',label:ar?'كومبلكس':'Complex'},{code:'TREX',label:ar?'تركس':'Trex'}]:[{code:'KING',label:ar?'ملك القلوب':'King of Hearts'},{code:'QUEENS',label:ar?'البنات':'Queens'},{code:'DIAMONDS',label:ar?'الديناري':'Diamonds'},{code:'COLLECTIONS',label:ar?'الأكلات':'Collections'},{code:'TREX',label:ar?'تركس':'Trex'}]
 
 const namesForPlayers=(game,ids=[])=>game.players.filter(player=>ids.includes(player.id)).map(player=>player.name).join(' & ')

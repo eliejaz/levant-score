@@ -42,7 +42,9 @@ mod tests {
     fn reviewed_player_counts_match_contract() {
         let expected = [
             ("leekha-solo", vec![4]),
+            ("leekha-solo-shown", vec![4]),
             ("leekha-team", vec![4]),
+            ("leekha-team-shown", vec![4]),
             ("400", vec![4]),
             ("tarneeb", vec![4]),
             ("chinese", vec![2, 3, 4]),

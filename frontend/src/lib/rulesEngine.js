@@ -1,4 +1,4 @@
-const ENGINE_VERSION=2
+const ENGINE_VERSION=3
 const RULES_URL=`/game_rules.wasm?v=${ENGINE_VERSION}`
 const encoder=new TextEncoder()
 const decoder=new TextDecoder()
@@ -61,11 +61,14 @@ function engineRequest(request){
     bidderTeam:nullableNumber(request.bidderTeam),
     bid:nullableNumber(request.bid),
     tricks:nullableNumber(request.tricks),
+    leekhaShownByPlayerId:request.leekhaShownByPlayerId??null,
+    leekhaCapturedByPlayerId:request.leekhaCapturedByPlayerId??null,
     scores:(request.scores||[]).map(score=>({
       playerId:score.playerId??null,teamNumber:nullableNumber(score.teamNumber),points:nullableNumber(score.points),
       bid:nullableNumber(score.bid),made:score.made??null,kingHearts:nullableNumber(score.kingHearts),queens:nullableNumber(score.queens),
       diamonds:nullableNumber(score.diamonds),tricks:nullableNumber(score.tricks),finishPosition:nullableNumber(score.finishPosition),
       cardPoints:nullableNumber(score.cardPoints),bonusPoints:nullableNumber(score.bonusPoints),basras:nullableNumber(score.basras),majority:score.majority??null,
+      cardsLeft:nullableNumber(score.cardsLeft),
     })),
   }
 }

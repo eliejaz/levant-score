@@ -36,6 +36,8 @@ pub struct RoundRequest {
     pub bidder_team: Option<i32>,
     pub bid: Option<i32>,
     pub tricks: Option<i32>,
+    pub leekha_shown_by_player_id: Option<String>,
+    pub leekha_captured_by_player_id: Option<String>,
     pub scores: Vec<ScoreInput>,
 }
 
@@ -56,6 +58,7 @@ pub struct ScoreInput {
     pub bonus_points: Option<i32>,
     pub basras: Option<i32>,
     pub majority: Option<bool>,
+    pub cards_left: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -158,6 +161,7 @@ fn calculate(
     player: &PlayerState,
 ) -> Result<i32, String> {
     match game.preset_code.as_str() {
+        "leekha-solo-shown" | "leekha-team-shown" => calculate_shown_leekha(input, request, player),
         "400" => calculate_400(input, player),
         "tarneeb" => calculate_tarneeb(input, request),
         "trex" | "trex-complex" => calculate_trex(input, request.rule_code.as_deref()),
@@ -167,22 +171,15 @@ fn calculate(
         "belote" => Ok(required(input.card_points, "Enter card points")?
             + required(input.bonus_points, "Enter declarations and bonuses")?),
         "hand" => required(input.card_points, "Enter each player's cards left"),
+        "chinese" => calculate_chinese(input),
         _ => required(input.points, "Enter a score"),
     }
 }
 
 fn validate(game: &GameState, request: &RoundRequest, points: &[i32]) -> Result<(), String> {
     match game.preset_code.as_str() {
-        "leekha-solo" | "leekha-team" => {
-            require(
-                points.iter().all(|point| (0..=36).contains(point)),
-                "Leekha scores must be between 0 and 36",
-            )?;
-            require(
-                points.iter().sum::<i32>() == 36,
-                "A Leekha hand must distribute exactly 36 points",
-            )
-        }
+        "leekha-solo" | "leekha-team" => validate_leekha(game, request, false),
+        "leekha-solo-shown" | "leekha-team-shown" => validate_leekha(game, request, true),
         "400" => validate_400(game, request),
         "tarneeb" => validate_tarneeb(request),
         "trex" => validate_trex(game, request, false),
@@ -199,11 +196,127 @@ fn validate(game: &GameState, request: &RoundRequest, points: &[i32]) -> Result<
                 "At least one player must finish the hand with 0 points",
             )
         }
+        "chinese" => validate_chinese(request),
         _ => require(
             points.iter().all(|point| (-9999..=9999).contains(point)),
             "Score is outside the supported range",
         ),
     }
+}
+
+fn calculate_shown_leekha(
+    input: &ScoreInput,
+    request: &RoundRequest,
+    player: &PlayerState,
+) -> Result<i32, String> {
+    let base = required(input.points, "Enter every player's 36-point Leekha score")?;
+    if request.leekha_captured_by_player_id.as_deref() != Some(player.id.as_str()) {
+        return Ok(base);
+    }
+    let bonus = if request.leekha_shown_by_player_id == request.leekha_captured_by_player_id {
+        26
+    } else {
+        13
+    };
+    Ok(base + bonus)
+}
+
+fn validate_leekha(
+    game: &GameState,
+    request: &RoundRequest,
+    shown_variant: bool,
+) -> Result<(), String> {
+    let base = request
+        .scores
+        .iter()
+        .map(|score| required(score.points, "Enter every player's Leekha score"))
+        .collect::<Result<Vec<_>, _>>()?;
+    require(
+        base.iter().all(|point| (0..=36).contains(point)),
+        "Leekha scores must be between 0 and 36",
+    )?;
+    require(
+        base.iter().sum::<i32>() == 36,
+        if shown_variant {
+            "A shown-Leekha hand must distribute exactly 36 base points"
+        } else {
+            "A Leekha hand must distribute exactly 36 points"
+        },
+    )?;
+    if !shown_variant {
+        return require(
+            request.leekha_shown_by_player_id.is_none()
+                && request.leekha_captured_by_player_id.is_none(),
+            "Shown Leekha bonuses require the shown-card game mode",
+        );
+    }
+    match (
+        request.leekha_shown_by_player_id.as_deref(),
+        request.leekha_captured_by_player_id.as_deref(),
+    ) {
+        (None, None) => Ok(()),
+        (Some(shown_by), Some(captured_by)) => {
+            require(
+                game.players.iter().any(|player| player.id == shown_by),
+                "Choose who showed the Leekha card",
+            )?;
+            require(
+                game.players.iter().any(|player| player.id == captured_by),
+                "Choose who captured the Leekha card",
+            )?;
+            let captured_score = request
+                .scores
+                .iter()
+                .find(|score| score.player_id.as_deref() == Some(captured_by))
+                .and_then(|score| score.points)
+                .unwrap_or_default();
+            require(
+                captured_score >= 13,
+                "The player who captured the shown Leekha must have at least 13 base points",
+            )
+        }
+        _ => Err("Choose both who showed and who captured the Leekha card".to_owned()),
+    }
+}
+
+fn calculate_chinese(input: &ScoreInput) -> Result<i32, String> {
+    let cards = required(
+        input.cards_left,
+        "Enter the cards left for every Chinese player",
+    )?;
+    require(
+        (0..=13).contains(&cards),
+        "Cards left must be between 0 and 13",
+    )?;
+    Ok(match cards {
+        0 => 0,
+        1..=4 => cards,
+        5..=9 => cards * 2,
+        10..=12 => cards * 3,
+        13 => 40,
+        _ => unreachable!(),
+    })
+}
+
+fn validate_chinese(request: &RoundRequest) -> Result<(), String> {
+    let cards = request
+        .scores
+        .iter()
+        .map(|score| {
+            required(
+                score.cards_left,
+                "Enter the cards left for every Chinese player",
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    require(
+        cards.iter().all(|cards| (0..=13).contains(cards)),
+        "Cards left must be between 0 and 13",
+    )?;
+    require(
+        cards.iter().filter(|cards| **cards == 0).count() == 1,
+        "Choose exactly one player who finished their cards first",
+    )
 }
 
 fn calculate_400(input: &ScoreInput, player: &PlayerState) -> Result<i32, String> {
@@ -743,7 +856,7 @@ mod wasm {
 
     #[no_mangle]
     pub extern "C" fn engine_version() -> u32 {
-        2
+        3
     }
 
     #[no_mangle]
@@ -825,6 +938,77 @@ mod tests {
         assert_eq!(
             evaluate_round(&game, &invalid).unwrap_err(),
             "A Leekha hand must distribute exactly 36 points"
+        );
+    }
+
+    #[test]
+    fn shown_leekha_adds_double_or_triple_card_value() {
+        let game = sample(
+            "leekha-solo-shown",
+            "INDIVIDUAL",
+            "LOSE_AT_OR_ABOVE",
+            Some(201),
+            None,
+        );
+        let mut double = points(&game, &[5, 13, 10, 8]);
+        double.leekha_shown_by_player_id = Some("p0".into());
+        double.leekha_captured_by_player_id = Some("p1".into());
+        assert_eq!(
+            evaluate_round(&game, &double)
+                .unwrap()
+                .scores
+                .iter()
+                .map(|score| score.points)
+                .collect::<Vec<_>>(),
+            vec![5, 26, 10, 8]
+        );
+
+        let mut triple = points(&game, &[13, 10, 8, 5]);
+        triple.leekha_shown_by_player_id = Some("p0".into());
+        triple.leekha_captured_by_player_id = Some("p0".into());
+        assert_eq!(evaluate_round(&game, &triple).unwrap().scores[0].points, 39);
+    }
+
+    #[test]
+    fn chinese_scores_cards_left_and_requires_one_winner() {
+        let game = sample("chinese", "INDIVIDUAL", "LOSE_AT_OR_ABOVE", Some(100), None);
+        let request = RoundRequest {
+            scores: game
+                .players
+                .iter()
+                .zip([0, 4, 9, 13])
+                .map(|(player, cards_left)| ScoreInput {
+                    player_id: Some(player.id.clone()),
+                    cards_left: Some(cards_left),
+                    ..default_score()
+                })
+                .collect(),
+            ..RoundRequest::default()
+        };
+        assert_eq!(
+            evaluate_round(&game, &request)
+                .unwrap()
+                .scores
+                .iter()
+                .map(|score| score.points)
+                .collect::<Vec<_>>(),
+            vec![0, 4, 18, 40]
+        );
+        let no_winner = RoundRequest {
+            scores: game
+                .players
+                .iter()
+                .map(|player| ScoreInput {
+                    player_id: Some(player.id.clone()),
+                    cards_left: Some(2),
+                    ..default_score()
+                })
+                .collect(),
+            ..RoundRequest::default()
+        };
+        assert_eq!(
+            evaluate_round(&game, &no_winner).unwrap_err(),
+            "Choose exactly one player who finished their cards first"
         );
     }
 
@@ -1008,8 +1192,19 @@ mod tests {
     ) -> GameState {
         GameState {
             preset_code: code.into(),
-            team_mode: matches!(code, "leekha-team" | "400" | "tarneeb" | "basra" | "belote"),
-            score_direction: if matches!(code, "leekha-solo" | "leekha-team" | "hand") {
+            team_mode: matches!(
+                code,
+                "leekha-team" | "leekha-team-shown" | "400" | "tarneeb" | "basra" | "belote"
+            ),
+            score_direction: if matches!(
+                code,
+                "leekha-solo"
+                    | "leekha-solo-shown"
+                    | "leekha-team"
+                    | "leekha-team-shown"
+                    | "hand"
+                    | "chinese"
+            ) {
                 "LOW_WINS".into()
             } else {
                 "HIGH_WINS".into()

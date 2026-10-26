@@ -44,6 +44,10 @@ pub fn evaluate(game: &GameData, request: &AddRoundRequest) -> ApiResult<Evaluat
         bidder_team: request.bidder_team,
         bid: request.bid,
         tricks: request.tricks,
+        leekha_shown_by_player_id: request.leekha_shown_by_player_id.map(|id| id.to_string()),
+        leekha_captured_by_player_id: request
+            .leekha_captured_by_player_id
+            .map(|id| id.to_string()),
         scores: request
             .scores
             .iter()
@@ -62,6 +66,7 @@ pub fn evaluate(game: &GameData, request: &AddRoundRequest) -> ApiResult<Evaluat
                 bonus_points: score.bonus_points,
                 basras: score.basras,
                 majority: score.majority,
+                cards_left: score.cards_left,
             })
             .collect(),
     };

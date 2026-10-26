@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, CirclePlay, Plus, ShieldCheck, Trash2, Users, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, CirclePlay, Eye, Plus, ShieldCheck, Trash2, Users, X } from 'lucide-react'
 import Shell from '../components/Shell'
 import Loading from '../components/Loading'
 import { gameRepository } from '../lib/gameRepository'
@@ -11,7 +11,9 @@ export default function NewGame() {
   const {t,lang}=useLanguage(); const ar=lang==='ar'; const nav=useNavigate()
   useEffect(()=>{gameRepository.getPresets().then(setPresets).catch(e=>setError(e.message))},[])
   const counts=selected?playerCounts(selected):[]; const fixedCount=counts.length===1; const discreteCount=selected?.code==='basra'
+  const variants=selected?.variantGroup?presets.filter(p=>p.variantGroup===selected.variantGroup):[]
   const choose=p=>{ const allowed=playerCounts(p); const count=p.code==='basra'?2:allowed.includes(4)?4:allowed[0]; setSelected(p); setTeamMode(p.teamMode); setScoreMode(p.scoreMode); setDirection(p.direction); setThresholdRule(p.thresholdRule); setTarget(p.defaultTarget ?? ''); setTitle(ar?p.nameAr:p.name); setPlayers(Array.from({length:count},(_,i)=>({name:'',teamNumber:p.teamMode?(i%2)+1:null}))); setStep(2) }
+  const chooseVariant=p=>{setSelected(p);setTeamMode(p.teamMode);setScoreMode(p.scoreMode);setDirection(p.direction);setThresholdRule(p.thresholdRule);setTarget(p.defaultTarget??'');setTitle(ar?p.nameAr:p.name)}
   const setPlayer=(i,key,value)=>setPlayers(players.map((p,n)=>n===i?{...p,[key]:value}:p))
   const resizePlayers=count=>setPlayers(current=>Array.from({length:count},(_,i)=>current[i]||{name:'',teamNumber:teamMode?(i%2)+1:null}))
   const addPlayer=()=>counts.includes(players.length+1)&&resizePlayers(players.length+1)
@@ -28,9 +30,10 @@ export default function NewGame() {
     <button className="text-back" onClick={()=>step===2?setStep(1):nav('/dashboard')}><ChevronLeft size={18}/>{t.back}</button>
     <div className="wizard-progress"><span className="active"><b>1</b>{t.pickGame}</span><i/><span className={step===2?'active':''}><b>2</b>{t.gameDetails}</span></div>
     {step===1 ? <><div className="page-title"><span className="eyebrow green">{t.gameSetup}</span><h1>{t.pickGame}</h1><p>{ar?'اختَر اللعبة ومنظبطلك طريقة الحساب.':'Choose a favorite, or make your own rules.'}</p></div>
-      {!presets?<Loading/>:<div className="preset-grid">{presets.map(p=><button key={p.code} className={`preset-card accent-${p.accent}`} onClick={()=>choose(p)}><span className="preset-suit">{presetSuit(p.code)}</span><div><h3>{ar?p.nameAr:p.name}</h3><p>{ar?p.descriptionAr:p.description}</p><span><Users size={14}/>{playerCountLabel(p,ar)} · {p.teamMode?t.teams:t.players}</span></div><ArrowRight className="preset-arrow" size={19}/></button>)}</div>}
+      {!presets?<Loading/>:<div className="preset-grid">{presets.filter(p=>!p.pickerHidden).map(p=><button key={p.code} className={`preset-card preset-accent-${p.accent}`} onClick={()=>choose(p)}><span className="preset-suit" aria-hidden="true">{presetSuit(p.code)}</span><div><h3>{ar?p.nameAr:p.name}</h3><p>{ar?p.descriptionAr:p.description}</p><span><Users size={15}/>{playerCountLabel(p,ar)} · {p.teamMode?t.teams:t.players}</span></div><span className="preset-arrow" aria-hidden="true"><ArrowRight size={18}/></span></button>)}</div>}
     </> : <><div className="page-title compact-title"><span className="eyebrow green">{ar?selected.nameAr:selected.name}</span><h1>{t.gameDetails}</h1><p>{ar?'مين عم يلعب؟ فيك تغيّر كل شي قبل ما تبلّش.':'Who’s playing? You can adjust everything before you begin.'}</p></div>
       <div className="setup-layout"><section className="setup-card"><h2>{ar?'تفاصيل اللعبة':'Game details'}</h2><label>{t.gameName}<input value={title} onChange={e=>setTitle(e.target.value)} maxLength="120"/></label>{selected.code==='custom'&&<label>{ar?'نوع اللعبة':'Game type'}<input value={customName} onChange={e=>setCustomName(e.target.value)} placeholder={ar?'مثلاً: ١٤':'e.g. Fourteen'}/></label>}
+        {variants.length>1&&<div className="leekha-variant-picker"><span>{ar?'طريقة حساب الليخة':'Leekha scoring mode'}</span><div>{variants.map(variant=><button type="button" key={variant.code} className={selected.code===variant.code?'active':''} onClick={()=>chooseVariant(variant)}><i>{variant.pickerHidden?<Eye size={17}/>:'36'}</i><strong>{variant.pickerHidden?(ar?'كشف الليخة':'Shown Leekha'):(ar?'عادي':'Standard')}</strong><small>{variant.pickerHidden?(ar?'دبل أو ×٣ · الخسارة عند ٢٠١':'Double or ×3 · lose at 201'):(ar?'٣٦ نقطة · الخسارة عند ١٠١':'36 points · lose at 101')}</small></button>)}</div></div>}
         <div className="field-row"><label>{limitLabel} {thresholdRule==='NONE'&&<small>{t.optional}</small>}<input type="number" value={target} onChange={e=>setTarget(e.target.value)} placeholder="—" disabled={thresholdRule==='NONE'&&selected.code!=='custom'}/></label>{selected.code==='custom'?<label>{t.endRule}<select value={thresholdRule} onChange={e=>setThresholdRule(e.target.value)}><option value="NONE">{t.manualFinish}</option><option value="WIN_AT_OR_ABOVE">{t.firstWins}</option><option value="LOSE_AT_OR_ABOVE">{t.firstLoses}</option></select></label>:<div className="rule-field"><span>{t.endRule}</span><strong><ShieldCheck size={17}/>{ar?selected.ruleAr:selected.rule}</strong></div>}</div>
         {selected.code==='custom'&&<label>{t.scoreDirection}<select value={direction} onChange={e=>setDirection(e.target.value)}><option value="HIGH_WINS">{t.highWins}</option><option value="LOW_WINS">{t.lowWins}</option></select></label>}
         {selected.code==='custom'&&<div className="team-toggle"><div><strong>{t.teams}</strong><span>{ar?'اجمع نتائج الشركاء':'Combine partner scores'}</span></div><button className={teamMode?'on':''} onClick={()=>toggleTeams(!teamMode)}><i/></button></div>}

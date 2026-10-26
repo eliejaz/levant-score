@@ -115,4 +115,7 @@ pub struct Preset {
     pub rule: String,
     pub rule_ar: String,
     pub accent: String,
+    #[serde(default)]
+    pub picker_hidden: bool,
+    pub variant_group: Option<String>,
 }

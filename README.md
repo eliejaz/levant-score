@@ -125,7 +125,8 @@ DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --workspac
 - Start a solo or team game from a preset
 - Configure the target, score direction, seats, and teams
 - Use rule-aware round forms with live helpers and server-side validation
-- Keep Leekha team scores per player and end when a player reaches 101
+- Keep Leekha team scores per player, with standard 101-point play or the shown-card double/triple variant to 201
+- Count Chinese automatically from cards left, including its ×1/×2/×3/40 penalty ladder and 100-point loss rule
 - Record 400 bids and made/missed results, Tarneeb contracts, and preset-specific card totals
 - See live standings and score history
 - Edit a saved hand; the app replays that hand and all later hands through the rules engine
