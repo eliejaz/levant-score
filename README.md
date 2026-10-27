@@ -125,7 +125,7 @@ DATABASE_URL=postgresql://user:password@localhost/postgres cargo test --workspac
 - Start a solo or team game from a preset
 - Configure the target, score direction, seats, and teams
 - Use rule-aware round forms with live helpers and server-side validation
-- Keep Leekha team scores per player, with standard 101-point play or the shown-card double/triple variant to 201
+- Keep Leekha team scores per player, with standard 101-point play or Leekha Maftouha to 201, where Q♠ and 10♦ can each be opened for double/triple points
 - Count Chinese automatically from cards left, including its ×1/×2/×3/40 penalty ladder and 100-point loss rule
 - Score Quatorze automatically from the winner, remaining-card values, Jokers, and normal or all-at-once finish
 - Record 400 bids and made/missed results, Tarneeb contracts, and preset-specific card totals

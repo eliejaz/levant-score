@@ -38,6 +38,8 @@ pub struct RoundRequest {
     pub tricks: Option<i32>,
     pub leekha_shown_by_player_id: Option<String>,
     pub leekha_captured_by_player_id: Option<String>,
+    pub leekha_ten_diamonds_shown_by_player_id: Option<String>,
+    pub leekha_ten_diamonds_captured_by_player_id: Option<String>,
     pub quatorze_winner_player_id: Option<String>,
     pub quatorze_all_at_once: Option<bool>,
     pub scores: Vec<ScoreInput>,
@@ -215,15 +217,35 @@ fn calculate_shown_leekha(
     player: &PlayerState,
 ) -> Result<i32, String> {
     let base = required(input.points, "Enter every player's 36-point Leekha score")?;
-    if request.leekha_captured_by_player_id.as_deref() != Some(player.id.as_str()) {
-        return Ok(base);
+    Ok(base
+        + shown_card_bonus(
+            13,
+            player,
+            request.leekha_shown_by_player_id.as_deref(),
+            request.leekha_captured_by_player_id.as_deref(),
+        )
+        + shown_card_bonus(
+            10,
+            player,
+            request.leekha_ten_diamonds_shown_by_player_id.as_deref(),
+            request.leekha_ten_diamonds_captured_by_player_id.as_deref(),
+        ))
+}
+
+fn shown_card_bonus(
+    card_value: i32,
+    player: &PlayerState,
+    shown_by: Option<&str>,
+    captured_by: Option<&str>,
+) -> i32 {
+    if captured_by != Some(player.id.as_str()) {
+        return 0;
     }
-    let bonus = if request.leekha_shown_by_player_id == request.leekha_captured_by_player_id {
-        26
+    if shown_by == captured_by {
+        card_value * 2
     } else {
-        13
-    };
-    Ok(base + bonus)
+        card_value
+    }
 }
 
 fn validate_leekha(
@@ -251,36 +273,68 @@ fn validate_leekha(
     if !shown_variant {
         return require(
             request.leekha_shown_by_player_id.is_none()
-                && request.leekha_captured_by_player_id.is_none(),
+                && request.leekha_captured_by_player_id.is_none()
+                && request.leekha_ten_diamonds_shown_by_player_id.is_none()
+                && request.leekha_ten_diamonds_captured_by_player_id.is_none(),
             "Shown Leekha bonuses require the shown-card game mode",
         );
     }
-    match (
+    validate_open_leekha_card(
+        game,
+        "Queen of Spades",
         request.leekha_shown_by_player_id.as_deref(),
         request.leekha_captured_by_player_id.as_deref(),
-    ) {
+    )?;
+    validate_open_leekha_card(
+        game,
+        "Ten of Diamonds",
+        request.leekha_ten_diamonds_shown_by_player_id.as_deref(),
+        request.leekha_ten_diamonds_captured_by_player_id.as_deref(),
+    )?;
+
+    let mut required_base_by_captor: HashMap<&str, i32> = HashMap::new();
+    if let Some(captor) = request.leekha_captured_by_player_id.as_deref() {
+        *required_base_by_captor.entry(captor).or_default() += 13;
+    }
+    if let Some(captor) = request.leekha_ten_diamonds_captured_by_player_id.as_deref() {
+        *required_base_by_captor.entry(captor).or_default() += 10;
+    }
+    for (captor, required_base) in required_base_by_captor {
+        let captured_score = request
+            .scores
+            .iter()
+            .find(|score| score.player_id.as_deref() == Some(captor))
+            .and_then(|score| score.points)
+            .unwrap_or_default();
+        require(
+            captured_score >= required_base,
+            "A player must receive the base value of every open Leekha card they captured",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_open_leekha_card(
+    game: &GameState,
+    card_name: &str,
+    shown_by: Option<&str>,
+    captured_by: Option<&str>,
+) -> Result<(), String> {
+    match (shown_by, captured_by) {
         (None, None) => Ok(()),
         (Some(shown_by), Some(captured_by)) => {
             require(
                 game.players.iter().any(|player| player.id == shown_by),
-                "Choose who showed the Leekha card",
+                &format!("Choose who showed the {card_name}"),
             )?;
             require(
                 game.players.iter().any(|player| player.id == captured_by),
-                "Choose who captured the Leekha card",
-            )?;
-            let captured_score = request
-                .scores
-                .iter()
-                .find(|score| score.player_id.as_deref() == Some(captured_by))
-                .and_then(|score| score.points)
-                .unwrap_or_default();
-            require(
-                captured_score >= 13,
-                "The player who captured the shown Leekha must have at least 13 base points",
+                &format!("Choose who captured the {card_name}"),
             )
         }
-        _ => Err("Choose both who showed and who captured the Leekha card".to_owned()),
+        _ => Err(format!(
+            "Choose both who showed and who captured the {card_name}"
+        )),
     }
 }
 
@@ -922,7 +976,7 @@ mod wasm {
 
     #[no_mangle]
     pub extern "C" fn engine_version() -> u32 {
-        4
+        5
     }
 
     #[no_mangle]
@@ -1008,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn shown_leekha_adds_double_or_triple_card_value() {
+    fn open_leekha_scores_queen_and_ten_independently() {
         let game = sample(
             "leekha-solo-shown",
             "INDIVIDUAL",
@@ -1033,6 +1087,22 @@ mod tests {
         triple.leekha_shown_by_player_id = Some("p0".into());
         triple.leekha_captured_by_player_id = Some("p0".into());
         assert_eq!(evaluate_round(&game, &triple).unwrap().scores[0].points, 39);
+
+        let mut both = points(&game, &[0, 23, 8, 5]);
+        both.leekha_shown_by_player_id = Some("p0".into());
+        both.leekha_captured_by_player_id = Some("p1".into());
+        both.leekha_ten_diamonds_shown_by_player_id = Some("p1".into());
+        both.leekha_ten_diamonds_captured_by_player_id = Some("p1".into());
+        assert_eq!(evaluate_round(&game, &both).unwrap().scores[1].points, 56);
+
+        let mut impossible = points(&game, &[10, 13, 8, 5]);
+        impossible.leekha_shown_by_player_id = Some("p0".into());
+        impossible.leekha_captured_by_player_id = Some("p1".into());
+        impossible.leekha_ten_diamonds_shown_by_player_id = Some("p2".into());
+        impossible.leekha_ten_diamonds_captured_by_player_id = Some("p1".into());
+        assert!(evaluate_round(&game, &impossible)
+            .unwrap_err()
+            .contains("base value of every open Leekha card"));
     }
 
     #[test]

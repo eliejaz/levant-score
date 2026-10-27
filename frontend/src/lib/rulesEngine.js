@@ -1,4 +1,4 @@
-const ENGINE_VERSION=4
+const ENGINE_VERSION=5
 const RULES_URL=`/game_rules.wasm?v=${ENGINE_VERSION}`
 const encoder=new TextEncoder()
 const decoder=new TextDecoder()
@@ -63,6 +63,8 @@ function engineRequest(request){
     tricks:nullableNumber(request.tricks),
     leekhaShownByPlayerId:request.leekhaShownByPlayerId??null,
     leekhaCapturedByPlayerId:request.leekhaCapturedByPlayerId??null,
+    leekhaTenDiamondsShownByPlayerId:request.leekhaTenDiamondsShownByPlayerId??null,
+    leekhaTenDiamondsCapturedByPlayerId:request.leekhaTenDiamondsCapturedByPlayerId??null,
     quatorzeWinnerPlayerId:request.quatorzeWinnerPlayerId??null,
     quatorzeAllAtOnce:request.quatorzeAllAtOnce??null,
     scores:(request.scores||[]).map(score=>({

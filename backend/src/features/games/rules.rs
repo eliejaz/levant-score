@@ -48,6 +48,12 @@ pub fn evaluate(game: &GameData, request: &AddRoundRequest) -> ApiResult<Evaluat
         leekha_captured_by_player_id: request
             .leekha_captured_by_player_id
             .map(|id| id.to_string()),
+        leekha_ten_diamonds_shown_by_player_id: request
+            .leekha_ten_diamonds_shown_by_player_id
+            .map(|id| id.to_string()),
+        leekha_ten_diamonds_captured_by_player_id: request
+            .leekha_ten_diamonds_captured_by_player_id
+            .map(|id| id.to_string()),
         quatorze_winner_player_id: request.quatorze_winner_player_id.map(|id| id.to_string()),
         quatorze_all_at_once: request.quatorze_all_at_once,
         scores: request

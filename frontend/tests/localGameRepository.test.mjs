@@ -27,7 +27,7 @@ test('Leekha rejects partial hands and scores every player individually',async()
   await assert.rejects(()=>games.addRound(game.id,{scores:scores.map(score=>({...score,points:1}))}),/exactly 36 points/)
 })
 
-test('shown Leekha adds the double or triple bonus automatically',async()=>{
+test('Open Leekha scores the Queen and Ten independently',async()=>{
   let game=await games.createGame(createRequest('leekha-solo-shown'))
   assert.equal(game.targetScore,201)
   let result=await games.addRound(game.id,{
@@ -41,10 +41,12 @@ test('shown Leekha adds the double or triple bonus automatically',async()=>{
   game=await games.createGame(createRequest('leekha-team-shown'))
   result=await games.addRound(game.id,{
     leekhaShownByPlayerId:game.players[0].id,
-    leekhaCapturedByPlayerId:game.players[0].id,
-    scores:game.players.map((player,index)=>({playerId:player.id,points:[13,10,8,5][index]})),
+    leekhaCapturedByPlayerId:game.players[1].id,
+    leekhaTenDiamondsShownByPlayerId:game.players[1].id,
+    leekhaTenDiamondsCapturedByPlayerId:game.players[1].id,
+    scores:game.players.map((player,index)=>({playerId:player.id,points:[0,23,8,5][index]})),
   })
-  assert.equal(result.round.scores[0].points,39)
+  assert.deepEqual(result.round.scores.map(item=>item.points),[0,56,8,5])
 })
 
 test('Chinese calculates penalties from cards left and plays to 100',async()=>{
